@@ -1,0 +1,185 @@
+---
+title: "Comparing E-G predictions with CRISPR data"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: bookdown::html_document2
+---
+
+```{r setupDocument, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+#save.image("comp.rda")
+#stop()
+```
+
+```{r comparisonDescription, include=FALSE}
+comparison <- snakemake@wildcards$comparison
+expt_file <- basename(snakemake@config$comparisons[[comparison]]$expt)
+pred_file <- basename(unlist(snakemake@config$comparisons[[comparison]]$pred))
+```
+
+<br>
+
+This is the output for the comparison **`r snakemake@wildcards$comparison`**. Following analyses
+evaluate how well the experimental data agrees with the predictions of CRE - gene pairs.
+
+Experimental data: **`r expt_file`**  
+Predictions: **`r pred_file`**
+
+<br>
+
+***
+
+```{r attachPackages, message=FALSE, warning=FALSE}
+# attach required packages and functions
+library(here)
+library(DT)
+library(ROCR)
+library(caTools)
+source(file.path(snakemake@scriptdir, "crisprComparisonFunctions.R"))
+source(file.path(snakemake@scriptdir, "crisprComparisonPlotFunctions.R"))
+```
+
+```{r processData}
+# load merged data and config files
+merged <- fread(here(snakemake@input$merged))
+pred_config <- fread(here(snakemake@input$pred_config))
+
+# filter for valid connections
+merged <- subset(merged, IncludeInModel == TRUE)
+
+# add label for each pair based on whether it's significant and activates or represses it's target
+merged <- labelPairs(merged, sig_col = "Significant")
+
+# get inverse predictors
+inverse_predictors <- pred_config[lowerIsMoreConfident == TRUE, pred.col] %>% 
+  outer(snakemake@params$pred_names, ., paste, sep = ".") %>% 
+  as.vector(.) %>% 
+  c(., "comp.distance") %>% 
+  intersect(., colnames(merged))
+```
+
+# Effect size vs predictors {.tabset .tabset-pills}
+Each predictor listed in the prediction data is plotted against the effect size of enhancer
+perturbations reported in the experimental data (e.g. percent change in expression). These plots
+show how well a predictor is associated with effects observed in CRISPRi enhancer screens in an
+intuitive way.
+
+```{r effectSizeScatter}
+# get all cell types in merged
+cell_types <- unique(merged$CellType)
+if (length(cell_types) > 1) {
+  cell_types <- c("combined", cell_types)
+}
+names(cell_types) <- cell_types
+
+# get all predictors to plot in merged data set
+preds_plot <- pred_config$pred.col %>% 
+  outer(snakemake@params$pred_names, ., paste, sep = ".") %>% 
+  as.vector(.) %>% 
+  c(., "comp.distance") %>% 
+  intersect(., colnames(merged)) %>% 
+  structure(., names = .)
+
+# make scatter plots
+es_scatters <- lapply(cell_types, FUN = predScatterPlots, df = merged, predictors = preds_plot,
+                      y_col = "EffectSize")
+```
+
+```{r include=FALSE}
+# calculate plot height based on number of predictors
+plot_height <- ceiling(length(preds_plot) / 3) * 3.5
+
+# save scatter plots to files
+plotdir <- here(dirname(snakemake@output[[1]]), "plots")
+dir.create(plotdir, recursive = TRUE, showWarnings = FALSE)
+for (n in names(es_scatters)) {
+  ggsave(es_scatters[[n]], filename = here(plotdir, paste0(n, "_EffectSize_scatter_plots.pdf")),
+         height = plot_height, width = 10, device = "pdf")
+}
+```
+
+```{r results='asis', fig.cap="Predictors versus effect size", fig.height=plot_height, fig.width=10}
+# print plots for every cell type in tabs
+for (i in cell_types){
+  cat("##", i, '{-}', '\n', '<br>', '\n')
+  plot(es_scatters[[i]])
+  cat('\n', '<br>', '\n\n')
+}
+cat("# {-}")
+```
+
+***
+
+<br>
+
+# Precision-Recall
+Precision-recall (PR) curves are used for comparing the performance of different predictors on the
+experimental data. The area under the PR curve (AUPRC) provides a single metric of a predictors
+performance.
+
+<br>
+
+```{r, fig.cap="Precision-recall performance"}
+# invert inverse predictors in merged dataset
+if (length(inverse_predictors) > 0) {
+  merged[, inverse_predictors] <- -1 * merged[, ..inverse_predictors]
+}
+
+# compute precision-recall tables
+pos_col <- snakemake@params$expt_positive_column
+pr <- lapply(preds_plot, function(p) {
+  performance(prediction(as.numeric(unlist(merged[, ..p])), unlist(merged[, ..pos_col])), 
+              measure = "prec", x.measure = "rec")
+  })
+
+# create and export PR summary table (AUC, cutoff, etc)
+perf_summary <- makePRSummaryTable(pr, min_sensitivity = snakemake@params$min_sensitivity,
+                                   thresholds = unlist(snakemake@params$pred_threshold))
+
+# write PR summary table to file
+perf_summary_file <- here(dirname(snakemake@input$merged), "pr_summary.txt")
+write.table(perf_summary, file = perf_summary_file, sep="\t", quote = FALSE,
+            row.names = FALSE)
+
+# pretty print PR summary table
+datatable(perf_summary, options = list(pageLength = 20), autoHideNavigation = TRUE)
+```
+<br>
+
+```{r, fig.cap = "PRC full experimental data", fig.height=4.5, fig.width=7, warning=FALSE}
+# convert PR objects to one table
+pr_df <- pr2df(pr, calc_f1 = TRUE)
+
+# write PR table to file
+pr_file <- here(dirname(snakemake@input$merged), "pr_curve.txt")
+write.table(pr_df, pr_file, sep = "\t", quote = FALSE, row.names = FALSE)
+
+# assign prediction class to merged dataset
+merged <- addPredictionClassLabels(merged, perf_summary = perf_summary, pos_col = pos_col)
+
+# write annotated dataset to output file
+merged_annotated_file <- here(dirname(snakemake@input$merged), "expt_pred_merged_annotated.txt")
+write.table(merged, merged_annotated_file, sep = "\t", quote = FALSE, row.names = FALSE)
+
+# percentage of true positives in dataset
+pct_pos <- mean(unlist(merged[, ..pos_col]))
+
+# make PRC plot
+prc <- makePRCurvePlot(pr_df, pred_cols = preds_plot, pct_pos = pct_pos, 
+                       plot_name = "PRC full experimental data", point_size = 3, text_size = 15,
+                       min_sensitivity = snakemake@params$min_sensitivity)
+
+# add custom colors
+prc <- prc + 
+  scale_colour_brewer(type = "qual", palette = "Set1")
+
+# save plot to file
+ggsave(prc, filename = here(plotdir, "prc.pdf"), height = 4.5, width = 7, device = "pdf")
+
+# print plot using plotly
+plotly::ggplotly(prc)
+```
+
+<br>
+
+***

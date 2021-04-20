@@ -1,0 +1,4 @@
+pred.col  agg.func  fill.val  lowerIsMoreConfident
+ABC.Score sum 0 FALSE
+distance  mean  Inf TRUE
+activity_base sum 0 FALSE
