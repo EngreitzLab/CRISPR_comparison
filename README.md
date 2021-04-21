@@ -62,11 +62,11 @@ plotly (>=4.9.3)
   * See `resources/example/input/K562.ABC.Predictions.AvgHiC.chrX.ENCODE.format.txt.gz` for example. 
 
 ## Configuring the snakemake workflow
-The config/config.yml file is used to specify comparisons that should be performed. See the
-comparison "example" in this file as an example. In addition to the predictions and experiment input
-files, each comparison requires a prediction config file (pred_config) in .txt format. This file
-specifies how the predictions should be handled and the behavior of the comparison code for this
-predictor depends on it's content:
+The `config/config.yml` file is used to specify comparisons that should be performed. See the
+comparison `"example"` in this file as an example. In addition to the predictions and experiment
+input files, each comparison requires a prediction config file (pred_config) in .txt format. This
+file specifies how the predictions should be handled and the behavior of the comparison code for
+this predictor depends on it's content:
 
  * pred.col: must match the name of the column in the predictions file
  * agg.func: In the case that an experimentally tested element overlaps multiple predicted elements,

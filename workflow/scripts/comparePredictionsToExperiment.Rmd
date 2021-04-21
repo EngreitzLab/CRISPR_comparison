@@ -31,8 +31,10 @@ Predictions: **`r pred_file`**
 
 ```{r attachPackages, message=FALSE, warning=FALSE}
 # attach required packages and functions
+library(tidyverse)
 library(here)
 library(DT)
+library(plotly)
 library(ROCR)
 library(caTools)
 source(file.path(snakemake@scriptdir, "crisprComparisonFunctions.R"))
@@ -82,10 +84,10 @@ preds_plot <- pred_config$pred.col %>%
 
 # make scatter plots
 es_scatters <- lapply(cell_types, FUN = predScatterPlots, df = merged, predictors = preds_plot,
-                      y_col = "EffectSize")
+                      y_col = "EffectSize", ncol_facet = 3, point_size = 2, text_size = 13)
 ```
 
-```{r include=FALSE}
+```{r saveEffectSizeScatter, include=FALSE}
 # calculate plot height based on number of predictors
 plot_height <- ceiling(length(preds_plot) / 3) * 3.5
 
@@ -112,74 +114,100 @@ cat("# {-}")
 
 <br>
 
-# Precision-Recall
+# Precision-Recall {.tabset .tabset-pills}
 Precision-recall (PR) curves are used for comparing the performance of different predictors on the
 experimental data. The area under the PR curve (AUPRC) provides a single metric of a predictors
 performance.
 
-<br>
-
-```{r, fig.cap="Precision-recall performance"}
+```{r computePRC}
 # invert inverse predictors in merged dataset
 if (length(inverse_predictors) > 0) {
   merged[, inverse_predictors] <- -1 * merged[, ..inverse_predictors]
 }
 
-# compute precision-recall tables
+# compute precision-recall tables for all cell types
 pos_col <- snakemake@params$expt_positive_column
-pr <- lapply(preds_plot, function(p) {
-  performance(prediction(as.numeric(unlist(merged[, ..p])), unlist(merged[, ..pos_col])), 
-              measure = "prec", x.measure = "rec")
-  })
+pr <- lapply(cell_types, FUN = calcPRCurves, df = merged, predictors = preds_plot,
+             pos_col = pos_col) 
 
 # create and export PR summary table (AUC, cutoff, etc)
-perf_summary <- makePRSummaryTable(pr, min_sensitivity = snakemake@params$min_sensitivity,
-                                   thresholds = unlist(snakemake@params$pred_threshold))
+pr_summary <- lapply(pr, FUN = makePRSummaryTable,
+                     min_sensitivity = snakemake@params$min_sensitivity,
+                     thresholds = unlist(snakemake@params$pred_threshold))
 
-# write PR summary table to file
-perf_summary_file <- here(dirname(snakemake@input$merged), "pr_summary.txt")
-write.table(perf_summary, file = perf_summary_file, sep="\t", quote = FALSE,
-            row.names = FALSE)
+# convert PR objects to one table per cell type
+pr_df <- lapply(pr, FUN = pr2df, calc_f1 = TRUE)
 
-# pretty print PR summary table
-datatable(perf_summary, options = list(pageLength = 20), autoHideNavigation = TRUE)
+# create output directory for PR data
+pr_dir <- here(here(dirname(snakemake@input$merged), "PRC"))
+dir.create(pr_dir, recursive = TRUE, showWarnings = FALSE)
+
+# write PR summary tables to files
+pr_summary_files <- here(pr_dir, paste0(names(pr_summary), "_pr_summary.txt"))
+for (i in seq_along(pr_summary)) {
+  write.table(pr_summary[[i]], file = pr_summary_files[[i]], sep="\t", quote = FALSE,
+              row.names = FALSE)
+}
+
+# write PR tables to files
+pr_files <- here(pr_dir, paste0(names(pr_df), "_pr_curve.txt"))
+for (i in seq_along(pr_df)) {
+  write.table(pr_df[[i]], file = pr_files[[i]], sep="\t", quote = FALSE, row.names = FALSE)
+}
 ```
-<br>
 
-```{r, fig.cap = "PRC full experimental data", fig.height=4.5, fig.width=7, warning=FALSE}
-# convert PR objects to one table
-pr_df <- pr2df(pr, calc_f1 = TRUE)
-
-# write PR table to file
-pr_file <- here(dirname(snakemake@input$merged), "pr_curve.txt")
-write.table(pr_df, pr_file, sep = "\t", quote = FALSE, row.names = FALSE)
-
+```{r plotPRC, fig.height=4.5, fig.width=7, warning=FALSE}
 # assign prediction class to merged dataset
-merged <- addPredictionClassLabels(merged, perf_summary = perf_summary, pos_col = pos_col)
+merged <- addPredictionClassLabels(merged, perf_summary = pr_summary[[1]], pos_col = pos_col)
 
 # write annotated dataset to output file
 merged_annotated_file <- here(dirname(snakemake@input$merged), "expt_pred_merged_annotated.txt")
 write.table(merged, merged_annotated_file, sep = "\t", quote = FALSE, row.names = FALSE)
 
-# percentage of true positives in dataset
-pct_pos <- mean(unlist(merged[, ..pos_col]))
+# calculate percentage of true positives in dataset per cell type
+pct_pos <- vapply(cell_types, FUN = calcPctPos, df = merged, pos_col = pos_col,
+                  FUN.VALUE = numeric(1))
 
-# make PRC plot
-prc <- makePRCurvePlot(pr_df, pred_cols = preds_plot, pct_pos = pct_pos, 
-                       plot_name = "PRC full experimental data", point_size = 3, text_size = 15,
-                       min_sensitivity = snakemake@params$min_sensitivity)
+# make PRC plots
+pr_plots <- mapply(
+  FUN = makePRCurvePlot, pr_df, pct_pos,
+  MoreArgs = list(pred_cols = preds_plot, plot_name = "PRC full experimental data",
+                  point_size = 3, text_size = 15, 
+                  min_sensitivity = snakemake@params$min_sensitivity),
+  SIMPLIFY = FALSE
+  )
 
-# add custom colors
-prc <- prc + 
-  scale_colour_brewer(type = "qual", palette = "Set1")
+# set custom color for PR curves
+pr_plots <- lapply(pr_plots, FUN = function(p) {
+  p + scale_colour_brewer(type = "qual", palette = "Set1")
+})
 
-# save plot to file
-ggsave(prc, filename = here(plotdir, "prc.pdf"), height = 4.5, width = 7, device = "pdf")
-
-# print plot using plotly
-plotly::ggplotly(prc)
+# save plots to file
+pr_plot_files <-  here(plotdir, paste0(names(pr_plots), "_prc.pdf"))
+for (i in seq_along(pr_plots)) {
+  ggsave(pr_plots[[i]], filename = pr_plot_files[[i]], height = 4.5, width = 7, device = "pdf")
+}
 ```
 
-<br>
+Precision-recall performance of each predictor:
+
+```{r results='asis', fig.cap="Precision-recall curves", warning=FALSE}
+# print plots for every cell type in tabs
+for (i in cell_types){
+  cat("##", i, '{-}', '\n', '<br>', '\n')
+  plot(pr_plots[[i]])
+  cat('\n', '<br>', '\n\n')
+}
+cat("# {-}")
+```
+
+This table shows a precision-recall summary for each predictor:
+```{r, fig.cap = "Precision-recall summary"}
+# combine PR summary into one table for display
+pr_summary_df <- bind_rows(pr_summary, .id = "cell_type")
+
+# pretty print PR summary table
+datatable(pr_summary_df, options = list(pageLength = 20), autoHideNavigation = TRUE)
+```
 
 ***

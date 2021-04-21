@@ -5,9 +5,9 @@ library(data.table)
 
 ## MAIN FUNCTIONS ==================================================================================
 
-# make scatter plots of one column (y) against all predictors (x)
-predScatterPlots <- function(df, cell_type, predictors, y_col, ncol_facet = 3, point_size = 2,
-                             text_size = 13) {
+# make scatter plots of one column (y) against all predictors (x) (default: combined == all cells)
+predScatterPlots <- function(df, predictors, y_col, ncol_facet = 3, point_size = 2, text_size = 13,
+                             cell_type = "combined") {
   
   # get data for specified cell type
   df_ct <- getCellTypeData(df, cell_type = cell_type)
@@ -26,6 +26,22 @@ predScatterPlots <- function(df, cell_type, predictors, y_col, ncol_facet = 3, p
     scale_x_continuous(labels = scales::scientific) +
     theme_bw() +
     theme(legend.position = "bottom", text = element_text(size = text_size))
+  
+}
+
+# compute PR curves for a given cell type (default: combined == all cells)
+calcPRCurves <- function(df, predictors, pos_col, cell_type = "combined") {
+  
+  # extract data for the provided cell type
+  df_ct <- getCellTypeData(df, cell_type = cell_type)
+  
+  # create list of PR curves with one element per predictor
+  pr <- lapply(predictors, function(p) {
+    performance(prediction(as.numeric(unlist(merged[, ..p])), unlist(merged[, ..pos_col])), 
+                measure = "prec", x.measure = "rec")
+  })
+  
+  return(pr)
   
 }
 
@@ -117,7 +133,6 @@ makePRCurvePlot <- function(pr_df, pred_cols, pct_pos, min_sensitivity = 0.7,
     theme(text = element_text(size = text_size))
   
 }
-
 
 ## HELPER FUNCTIONS ================================================================================
 
@@ -220,6 +235,17 @@ addOneLabel <- function(df, cutoff, score_col, pos_col) {
   df[which(!is.na(df[, ..score_col]) & df[, ..score_col] <= cutoff & df[, ..pos_col]), label_name] <- "FN"
   
   return(df)
+}
+
+# compute the number of positives for a given cell type (default: combined == all cells)
+calcPctPos <- function(df, pos_col, cell_type = "combined") {
+  
+  # extract data for the provided cell type
+  df_ct <- getCellTypeData(df, cell_type = cell_type)
+  
+  # compute percentage of positives
+  mean(unlist(df_ct[, ..pos_col]))
+
 }
 
 # get precision at a specific sensitivity (recall)
