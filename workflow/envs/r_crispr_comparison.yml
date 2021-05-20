@@ -18,5 +18,6 @@ dependencies:
   - r-dt=0.18
   - r-bookdown=0.21
   - r-plotly=4.9.3
+  - r-r.utils=2.10.1
   - bioconductor-genomicranges=1.42.0
   

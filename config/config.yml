@@ -1,4 +1,5 @@
 
+# comparisons to be performed by the pipeline, copy-paste example for a template
 comparisons:
   example:
     pred:
@@ -6,11 +7,7 @@ comparisons:
       AvgHiC: "resources/example/input/K562.ABC.Predictions.AvgHiC.chrX.ENCODE.format.txt.gz"
     expt:
       "resources/example/input/K562.ExperimentalData.slim.txt"
-    pred_config: "resources/example/input/pred_config_edit.txt"
-    pred_threshold:
-      K562HiC: 0.015
-      AvgHiC: 0.015
+    gene_universe: "resources/example/input/genes.txt"
+    pred_config: "resources/example/input/pred_config.txt"
     expt_positive_column: "Regulated"
     cell_name_mapping: NULL
-    ignore_expt_missing_predictions: FALSE
-    min_sensitivity: 0.7
