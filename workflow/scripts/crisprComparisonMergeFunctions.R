@@ -8,11 +8,20 @@ loadPredictions <- function(pred_file, show_progress = FALSE) {
   return(pred)
 }
 
-qcExpt <- function(expt, experimentalPositiveColumn) {
+qcExperiment <- function(expt, experimentalPositiveColumn) {
+  
   message("Running QC on experimental data")
-  expt <- subset(expt, IncludeInModel)
+  
+  # make sure that all column names are valid
+  illegal_cols <- c("ExperimentCellType")
+  wrong_expt_cols <- intersect(colnames(expt), illegal_cols)
+  if (length(wrong_expt_cols) > 0) {
+    stop("Illegal columns in experiment: ", paste(wrong_expt_cols, collapse = ", "), call. = FALSE)
+  }
+  
+  expt <- subset(expt, ValidConnection == "TRUE")
   #Check for duplicate experiments
-  dupe <- any(duplicated(expt[, c("CellType","GeneSymbol","chrPerturbationTarget","startPerturbationTarget","endPerturbationTarget")] ))
+  dupe <- any(duplicated(expt[, c("CellType", "measuredGeneSymbol", "chrom","chromStart","chromEnd")] ))
   if (dupe) {
     stop("The experimental data file contains duplicate experiments!", call. = FALSE)
   }
@@ -36,29 +45,21 @@ qcExpt <- function(expt, experimentalPositiveColumn) {
   message("Done")
 }
 
-qcPrediction <- function(pred.list, pred.config)  {
-  # Ensure that the fill value for each prediction column is at the extreme end of its range
-  message("Running QC on predictions")
-
-  doOnePred <- function(pred, config) {
-    pred <- as.data.table(pred)
-    this.cols <- intersect(colnames(pred), config$pred.col)
-    lapply(this.cols, function(s) {
-      qcCol(s, 
-            pred[, ..s],
-            subset(config, pred.col == s)$fill.val, 
-            subset(config, pred.col == s)$lowerIsMoreConfident)
-      })
-  }
+qcPredictions <- function(pred_list)  {
   
-  qcCol <- function(col.name, colData, fill.val, isInverted) {
-    # For each prediction column check that its missing fill val is at the extreme end of its range
-    isBad <- (isInverted & fill.val < pmin(colData)) | (!isInverted & fill.val > pmin(colData))
-    suppressWarnings(if (isBad) stop(paste0("Fill val for column ", col.name, " is not at the extreme of its range!", fill.val, " ", pmin(colData))))
-  }
-
-  dummy <- lapply(pred.list, function(s) doOnePred(s, config = pred.config))
+  message("Running QC on predictions")
+  
+  # make sure all column names are valid
+  illegal_cols <- c("experiment", "MappedCellType", "PredCellType")
+  dummy <- lapply(pred_list, FUN = function(pred) {
+    wrong_pred_cols <- intersect(colnames(pred), illegal_cols)
+    if (length(wrong_pred_cols) > 0) {
+      stop("Illegal columns in predictions: ", paste(wrong_pred_cols, collapse = ", "), call. = FALSE)
+    }
+  })
+  
   message("Done")
+  
 }
 
 # check for valid pred_config.txt input
@@ -79,14 +80,78 @@ qcPredConfig <- function(pred_config) {
   
 }
 
+qcCellMapping <- function(cell_mappings) {
+  
+  dummy <- lapply(cell_mappings, FUN = function(cm) {
+    dup_expt <- any(duplicated(cm$experiment))
+    dup_pred <- any(duplicated(cm$predictions))
+    if (any(c(dup_expt, dup_pred))) {
+      stop("Currently only unique cell type mappings allowed", call. = FALSE)
+    } 
+  })
+  
+}
+
+# map cell types from predictions to cell types in experimental data
+mapCellTypes <- function(pred_list, cell_mappings) {
+  
+  # create empty data.table for predictions not having cell_mappings
+  missing_cell_mappings <- setdiff(names(pred_list), names(cell_mappings))
+  names(missing_cell_mappings) <- missing_cell_mappings
+  missing_cell_mappings <- lapply(missing_cell_mappings, FUN = function(i) data.table() )
+  
+  # combine with provided cell mappings and sort
+  cell_mappings <- c(cell_mappings, missing_cell_mappings)[names(pred_list)]
+  
+  # map cell types
+  mapped_preds <- mapply(FUN = map_cell_type, pred = pred_list, ct_map = cell_mappings,
+                         SIMPLIFY = FALSE)
+  
+  return(mapped_preds)
+  
+}
+
+# function to map cell types for one prediction set
+map_cell_type <- function(pred, ct_map) {
+  
+  # map cell types is cell type mapping is provided
+  if (nrow(ct_map) == 0) {
+    
+    # simply assume that experimental cell types are identical to prediction cell types
+    pred_ct <- cbind(pred, ExperimentCellType = pred$CellType)
+    
+  } else {
+  
+    # rename columns in ct_map
+    colnames(ct_map)[colnames(ct_map) == "experiment"] <- "ExperimentCellType"
+    
+    # merge pred and cell type mapping
+    pred_ct <- merge(x = pred, y = ct_map, by.x = "CellType", by.y = "predictions", all.x = TRUE,
+                     all.y = FALSE)
+    
+    # assign new CellType if an experimental cell type was specified
+    to_map <- !is.na(pred_ct[["ExperimentCellType"]])
+    map_values <- pred_ct[to_map, ][["ExperimentCellType"]]
+    pred_ct$ExperimentCellType <- replace(pred_ct$CellType, list = to_map, values = map_values)
+    
+  }
+  
+  # rename original CellType column in output
+  pred_ct <- pred_ct[, c(colnames(pred), "ExperimentCellType"), with = FALSE]
+  colnames(pred_ct)[colnames(pred_ct) == "CellType"] <- "PredictionCellType"
+  
+  return(pred_ct)
+
+}
+
 # check if which genes in experimental also occur in predictions
 checkExistenceOfExperimentalGenesInPredictions <- function(expt, pred_list, summary_file) {
   
   # all genes in experimental data
-  expt_genes <- sort(unique(expt$GeneSymbol))
+  expt_genes <- sort(unique(expt$measuredGeneSymbol))
   
   # check which genes occur in predictions
-  expt_genes_in_pred <- lapply(pred_list, function(pred) {expt_genes %in% unique(pred$GeneSymbol) })
+  expt_genes_in_pred <- lapply(pred_list, function(pred) {expt_genes %in% unique(pred$TargetGene) })
   
   # create summary containing all experimental genes and their occurence in each prediction set
   summary <- data.table(experimental_genes = expt_genes, as.data.table(expt_genes_in_pred))
@@ -97,7 +162,7 @@ checkExistenceOfExperimentalGenesInPredictions <- function(expt, pred_list, summ
 }
 
 # combine a list of predictions with experimental data
-combineAllExptPred <- function(expt, pred_list, config, cellMapping, outdir) {
+combineAllExptPred <- function(expt, pred_list, config, outdir) {
   
   # merge each set of predictions with experimental data
   prediction_sets <- structure(names(pred_list), names = names(pred_list))
@@ -105,24 +170,15 @@ combineAllExptPred <- function(expt, pred_list, config, cellMapping, outdir) {
     prediction_sets,
     function(p) {
       combineSingleExptPred(expt = expt, pred = pred_list[[p]], pred_name = p,  config = config,
-                            cellMapping = cellMapping, outdir = outdir)
-                          })
-  
-  # columns to merge each set of merged predictions
-  #merge_by_cols <- colnames(expt)
-  
-  # add class to merging columns if provided in input
-  # if ("class" %in% colnames(expt)) merge_by_cols <- c(merge_by_cols, "class")
-  
-  # merge all data sets in merged_list
-  #output <- Reduce(function(x, y) merge(x, y, by = merge_by_cols, all = TRUE), merged_list)
+                              outdir = outdir)
+      })
   
   # combine merged data into one table
   output <- rbindlist(merged_list, idcol = "pred_id")
   
   # rearrange columns for output
-  expt_cols <- colnames(output)[seq(2, ncol(output) - 3)]
-  output_col_order <- c(expt_cols, "pred_id", "pred_col", "pred_value", "Prediction")
+  left_cols <- colnames(output)[seq(2, ncol(output) - 3)]
+  output_col_order <- c(left_cols, "pred_id", "pred_col", "pred_value", "Prediction")
   output <- output[, output_col_order, with = FALSE]
   
   return(output)
@@ -130,7 +186,7 @@ combineAllExptPred <- function(expt, pred_list, config, cellMapping, outdir) {
 }
 
 # merge predictions with experimental data
-combineSingleExptPred <- function(expt, pred, pred_name, config, cellMapping, outdir) {
+combineSingleExptPred <- function(expt, pred, pred_name, config, outdir) {
   
   # Step 1: merging overlapping enhancer - gene pairs ----------------------------------------------
   
@@ -149,20 +205,14 @@ combineSingleExptPred <- function(expt, pred, pred_name, config, cellMapping, ou
     warning("Following predictor(s) specified in config file not found for ", pred_name, ": ",
             paste(missing_pred, collapse = ", "), call. = FALSE)
   }
-  
-  # map cell types
-  if (!is.null(cellMapping)) {
-    message("Mapping cell types of predictions and experimental data")
-    pred <- applyCellTypeNameMapping(pred, cellMapping)
-  }
-  
+
   # create GenomicRanges for CRE-G links for both experimental data and predictions. this applies a
   # trick with using the seqnames to restrict overlaps to E-G pairs involving the same genes and in
   # the same cell type
-  expt_gr <- with(expt, GRanges(seqnames = paste0(CellType,":",chrPerturbationTarget,":",GeneSymbol),
-                                ranges = IRanges(startPerturbationTarget, endPerturbationTarget)))
-  pred_gr <- with(pred, GRanges(seqnames = paste0(CellType,":",chrElement,":",GeneSymbol),
-                                ranges = IRanges(startElement, endElement)))
+  expt_gr <- with(expt, GRanges(seqnames = paste0(CellType,":", chrom,":", measuredGeneSymbol),
+                                ranges = IRanges(chromStart, chromEnd)))
+  pred_gr <- with(pred, GRanges(seqnames = paste0(ExperimentCellType,":", chr,":", TargetGene),
+                                ranges = IRanges(start, end)))
   
   # make sure that seqnames are the same, else GRanges will report unnecessary warnings. this could
   # be removed and replaces with suppressWarnings() when calling findOverlaps() for a small gain
@@ -175,13 +225,13 @@ combineSingleExptPred <- function(expt, pred, pred_name, config, cellMapping, ou
   ovl <- findOverlaps(expt_gr, pred_gr)
   
   # merge predictions with experimental data
-  pred_merge_cols <- config_filt$pred_col  # columns in predictions to add to experimental data
+  pred_merge_cols <- c("PredictionCellType", config_filt$pred_col)  # columns in predictions to add
   merged <- cbind(expt[queryHits(ovl)], pred[subjectHits(ovl), pred_merge_cols, with = FALSE])
 
   # Step 2: aggregating pairs with multiple overlaps -----------------------------------------------
   
   # sometimes perturbed elements will overlap multiple predicted elements (eg in the case of a large
-  # deletion). in these cases need to summarize, E.g., sum ABC.Score across model elements
+  # deletion). in these cases need to summarize, e.g., sum ABC.Score across model elements
   # overlapping the deletion. this requires a config file describing how each prediction column
   # should be aggregated
   agg_cols <- setdiff(colnames(merged), config_filt$pred_col)
@@ -199,7 +249,7 @@ combineSingleExptPred <- function(expt, pred, pred_name, config, cellMapping, ou
   # get pairs from experimental data that are missing from predictions 
   expt_missing_preds <- expt[setdiff(seq_len(nrow(expt)), queryHits(ovl)), ]
   
-  # write these to a text file in the output subdirectory
+  # write these to a text file in the output sub-directory
   expt_missing_pred_dir <- file.path(outdir, "experimentalDataMissingPredictions")
   dir.create(expt_missing_pred_dir, recursive = TRUE, showWarnings = FALSE)
   write.table(
@@ -209,6 +259,7 @@ combineSingleExptPred <- function(expt, pred, pred_name, config, cellMapping, ou
     )
 
   # fill in missing values
+  expt_missing_preds$PredictionCellType <- NA_character_
   expt_missing_preds <- fillMissingPredictions(expt_missing_preds, config = config_filt,
                                                agg_cols = agg_cols)
   
@@ -233,11 +284,11 @@ combineSingleExptPred <- function(expt, pred, pred_name, config, cellMapping, ou
   #colnames(merged)[pred_cols] <- paste0(pred_name, ".", colnames(merged)[pred_cols])
   
   # convert to long format to generate output
-  output <- melt(merged, measure.vars = pred_merge_cols, variable.name = "pred_col",
+  output <- melt(merged, measure.vars =  config_filt$pred_col, variable.name = "pred_col",
                  value.name = "pred_value")
-  
+
   # sort output according to genomic coordinates of enhancers and target gene
-  sortcols <- c("chrPerturbationTarget", "startPerturbationTarget", "GeneSymbol")
+  sortcols <- c("chrom", "chromStart", "chromEnd", "measuredGeneSymbol")
   setorderv(output, sortcols)
   
   return(output)
@@ -248,10 +299,10 @@ combineSingleExptPred <- function(expt, pred, pred_name, config, cellMapping, ou
 collapseEnhancersOverlappingMultiplePredictions <- function(df, config, agg_cols) {
   
   # summarize columns as defined in config
-  list_for_agg <- as.list(df[, ..agg_cols])
   all_list <- mapply(FUN = function(pred_col, agg_func) {
-      aggregate(df[, ..pred_col], by = list_for_agg, FUN = agg_func)
-    }, pred_col = config$pred_col, agg_fun = config$aggregate_function, SIMPLIFY = FALSE)
+      agg_func <- get(agg_func)  # get function from string
+      df[, setNames(.(agg_func(get(pred_col))), pred_col), by = agg_cols]
+    }, pred_col = config$pred_col, agg_func = config$aggregate_function, SIMPLIFY = FALSE)
   
   # special handling for aggregating the class column
   class_agg <- function(x) {
@@ -270,11 +321,12 @@ collapseEnhancersOverlappingMultiplePredictions <- function(df, config, agg_cols
     }
   }
 
-  if ("class" %in% colnames(df)) {
-    class_temp <- aggregate(df$class, by = list_for_agg, FUN = class_agg)
-    colnames(class_temp)[colnames(class_temp) == "x"] <- "class"
-    all_list$class <- class_temp
-  }
+  # TODO: implement if class from predictions is added during merging
+  #if ("class" %in% colnames(df)) {
+  #  class_temp <- aggregate(df$class, by = list_for_agg, FUN = class_agg)
+  #  colnames(class_temp)[colnames(class_temp) == "x"] <- "class"
+  #  all_list$class <- class_temp
+  #}
   
   # merge all the aggregates together to make collapsed data.frame
   # TODO: AVOID INTERMEDIATE DATA.FRAME BY Reduce
@@ -301,24 +353,17 @@ fillMissingPredictions <- function(df, config, agg_cols) {
   
 }
 
-applyCellTypeNameMapping <- function(df, cellMapping) {
-  #Map CellType in predictions file to match experimental data file
-  for (ii in seq(nrow(cellMapping))) {
-    this.from <- strsplit(cellMapping$from[ii], split=",")[[1]]
-    this.to <- cellMapping$to[ii]
-    df$CellType[df$CellType %in% this.from] <- this.to
-  }
-
-  return(df)
-  
-}
-
 # filter experimental data for genes in gene universe and add TSS coordinates to experimental data
 filterExptGeneUniverse <- function(expt, genes, missing_file = NULL) {
   
+  # remove any exisiting TSS annotations from expt data
+  expt_cols <- colnames(expt)
+  tss_cols <- expt_cols %in% c("chrTSS", "startTSS", "endTSS")
+  expt <- expt[, !tss_cols, with = FALSE]
+  
   # add gene TSSs from specified gene universe to experimental data
-  expt_cols <- colnames(expt)  # original column order used for output later
-  expt <- merge(expt, genes, by = "GeneSymbol", all.x = TRUE, sort = FALSE)
+  expt <- merge(expt, genes, by.x = "measuredGeneSymbol", by.y = "gene", all.x = TRUE, sort = FALSE)
+  expt <- expt[, ..expt_cols]
   
   # get experimental data from genes that do not appear in the gene universe
   expt_missing <- expt[is.na(expt$chrTSS), ]
@@ -327,37 +372,14 @@ filterExptGeneUniverse <- function(expt, genes, missing_file = NULL) {
   if (nrow(expt_missing) > 0) {
     message("cre-gene pairs in experimental data missing from gene universe: ", nrow(expt_missing))
     if (!is.null(missing_file)) {
-      write.table(expt_missing[, -c("chrTSS", "startTSS", "endTSS")], file = missing_file,
-                  quote = FALSE, row.names = FALSE, sep = "\t")
+      write.table(expt_missing, file = missing_file, quote = FALSE, row.names = FALSE, sep = "\t")
     }
   }
   
   # filter out missing expt data, arrange columns and return as output
-  expt_filt <- expt[!is.na(expt$chrTSS), c(expt_cols, "chrTSS", "startTSS", "endTSS"), with = FALSE]
+  expt_filt <- expt[!is.na(expt$chrTSS), ]
   
   return(expt_filt)
-  
-}
-
-# compute baseline 'distance to TSS' predictor
-computeDistToTSS <- function(expt) {
-  
-  # compute distance to TSS
-  dist_to_tss <- with(
-    expt,
-    abs((startPerturbationTarget + endPerturbationTarget) / 2 - (startTSS + endTSS) / 2)
-  )
-  
-  # create output table
-  output <- data.table(
-    expt,
-    pred_id = "baseline",
-    pred_col = "distToTSS",
-    pred_value = dist_to_tss,
-    Prediction = 1
-  )
-  
-  return(output)
   
 }
 
@@ -434,4 +456,29 @@ writeExptSummary <- function(df, summary_file) {
 #     })
 #   names(pred.list) <- pred.table$name
 #   return(pred.list)
+# }
+# 
+# # Deprecated TODO: re-implement with new prediction format
+# qcPrediction <- function(pred_list, pred_config)  {
+#   # Ensure that the fill value for each prediction column is at the extreme end of its range
+#   message("Running QC on predictions")
+#   
+#   doOnePred <- function(pred, config) {
+#     this_cols <- intersect(colnames(pred), config$pred_col)
+#     lapply(this_cols, function(s) {
+#       qcCol(col_name = s, 
+#             colData = pred[, ..s],
+#             fill_val = subset(config, pred_col == s)$fill_val, 
+#             isInverted = subset(config, pred_col == s)$inverse_predictor)
+#     })
+#   }
+#   
+#   qcCol <- function(col_name, colData, fill_val, isInverted) {
+#     # For each prediction column check that its missing fill val is at the extreme end of its range
+#     isBad <- (isInverted & fill_val < pmin(colData)) | (!isInverted & fill_val > pmin(colData))
+#     suppressWarnings(if (isBad) stop(paste0("Fill val for column ", col_name, " is not at the extreme of its range!", fill_val, " ", pmin(colData))))
+#   }
+#   
+#   dummy <- lapply(pred_list, function(s) doOnePred(s, config = pred_config))
+#   message("Done")
 # }

@@ -7,15 +7,18 @@ sink(log)
 sink(log, type = "message")
 
 # attach required packages and functions
-code_file <- file.path(snakemake@scriptdir, "crisprComparisonMergeFunctions.R")
-suppressPackageStartupMessages(source(code_file))
+merge_functions_file <- file.path(snakemake@scriptdir, "crisprComparisonMergeFunctions.R")
+simple_predictors_file <- file.path(snakemake@scriptdir, "crisprComparisonSimplePredictors.R")
+suppressPackageStartupMessages(source(merge_functions_file))
+suppressPackageStartupMessages(source(simple_predictors_file))
 
 
 ## load data ---------------------------------------------------------------------------------------
 
 # load experimental data
 message("Reading experimental data in: ", snakemake@input$experiment)
-expt <- fread(file = snakemake@input$experiment, showProgress = FALSE)
+expt <- fread(file = snakemake@input$experiment, showProgress = FALSE,
+              colClasses = c("ValidConnection" = "character"))
 message("\tLoaded experimental data with ", nrow(expt), " rows.\n")
 
 # load prediction files
@@ -25,21 +28,24 @@ pred_list <- lapply(pred_files, FUN = loadPredictions, show_progress = FALSE)
 
 # load gene universe file
 genes <- fread(snakemake@input$gene_universe)
+colnames(genes) <- c("chrTSS", "startTSS", "endTSS", "gene", "score", "strandTSS")
+genes <- genes[, -c("score", "strandTSS")]
 
 # load pred_config file
 pred_config <- fread(snakemake@input$pred_config, colClasses = c("alpha" = "numeric"))
 
 # load cell mapping file if provided
-if (!is.null(snakemake@params$cell_name_mapping)) {
-  cellMapping <- fread(snakemake@params$cell_name_mapping)
+if (!is.null(snakemake@params$cell_type_mapping)) {
+  cell_mappings <- lapply(snakemake@params$cell_type_mapping, FUN = fread)
+  qcCellMapping(cell_mappings)
 } else {
-  cellMapping <- NULL
+  cell_mappings <- list()
 }
 
 # QC input data
 qcPredConfig(pred_config)
-qcExpt(expt, snakemake@params$expt_positive_column)
-qcPrediction(pred_list, pred_config)
+qcExperiment(expt, experimentalPositiveColumn = "Significant")
+qcPredictions(pred_list)
 
 ## process input data ------------------------------------------------------------------------------
 
@@ -50,7 +56,13 @@ outdir <- dirname(snakemake@output$merged)
 missing_file <- file.path(outdir, "expt_missing_from_gene_universe.txt")
 expt <- filterExptGeneUniverse(expt, genes = genes, missing_file = missing_file)
 
+# cell type matching and filter predictions for cell types in experimental data
+message("Mapping cell types in predictions to cell types in experimental data")
+pred_list <- mapCellTypes(pred_list, cell_mappings = cell_mappings)
+pred_list <- lapply(pred_list, FUN = function(p) p[p$ExperimentCellType %in% expt$CellType, ] )
+
 # check if genes in experimental data are also found in predictions and write to file
+# TODO: make this per cell type
 genes_summary_file <- file.path(outdir, "experimental_genes_in_predictions.txt")
 checkExistenceOfExperimentalGenesInPredictions(expt, pred_list, summary_file = genes_summary_file)
 
@@ -59,18 +71,20 @@ message("\nMerging experimentals data and predictions:")
 merged <- combineAllExptPred(expt = expt, 
                              pred_list = pred_list,
                              config = pred_config,
-                             cellMapping = cellMapping, 
                              outdir = outdir)
 
-# add baseline predictor of distance to TSS for all E-G pairs
+# add simple default baseline predictors
 message("Adding baseline predictors:\n\tdistance to TSS")
 dist_to_tss <- computeDistToTSS(expt)
 merged <- rbind(merged, dist_to_tss)
 
+# rename 'CellType' column from experimental data
+colnames(merged)[colnames(merged) == "CellType"] <- "ExperimentCellType"
+
 # generate and write summary for merged data (TODO: replace by more informative output)
-merged_summary_file <- file.path(outdir, "expt_pred_merged_summary.txt")
-writeExptSummary(unique(merged[, seq_len(ncol(merged) - 4), with = FALSE]),
-                 summary_file = merged_summary_file)
+#merged_summary_file <- file.path(outdir, "expt_pred_merged_summary.txt")
+#writeExptSummary(unique(merged[, seq_len(ncol(merged) - 4), with = FALSE]),
+#                 summary_file = merged_summary_file)
 
 # write merged data to main output file
 outfile <- snakemake@output$merged

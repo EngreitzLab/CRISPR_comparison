@@ -22,16 +22,15 @@ library(DT)
 library(plotly)
 library(ROCR)
 library(caTools)
-#source(file.path(snakemake@scriptdir, "crisprComparisonMergeFunctions.R"))
 source(file.path(snakemake@scriptdir, "crisprComparisonPlotFunctions.R"))
 ```
 
 ```{r loadData}
 # load merged data and pred_config file
-merged <- fread(here(snakemake@input$merged))
+merged <- fread(here(snakemake@input$merged), colClasses = c("ValidConnection" = "character"))
 pred_config <- fread(here(snakemake@input$pred_config), colClasses = c("alpha" = "numeric"))
 
-# extract predicitons and experiment input files from config in snakemake object
+# extract predictions and experiment input files from config in snakemake object
 comparison <- snakemake@wildcards$comparison
 expt_file <- basename(snakemake@config$comparisons[[comparison]]$expt)
 pred_file <- basename(unlist(snakemake@config$comparisons[[comparison]]$pred))
@@ -62,7 +61,7 @@ Precision-recall (PR) curves are used for comparing the performance of different
 experimental data. The area under the PR curve (AUPRC) provides a single metric of a predictors
 performance.
 
-```{r processData}
+```{r processInput}
 # add baseline predictors to pred_config
 pred_config <- data.frame(
   pred_id = "baseline", pred_col = "distToTSS", boolean = FALSE, alpha = 1e4,
@@ -80,24 +79,30 @@ merged <- pred_config %>%
   left_join(x = merged, y = ., by = c("pred_id", "pred_col"))
 
 # filter for valid connections
-merged <- subset(merged, IncludeInModel == TRUE)
+merged <- subset(merged, ValidConnection == "TRUE")
+
+# add 'Regulated' column to merged data (only significant pairs that have negative effect size)
+merged$Regulated <- merged$Significant == TRUE & merged$EffectSize < 0
 
 # filter out CRE-G pairs with missing data if specified
 if (snakemake@params$include_missing_predictions == FALSE) {
   merged <- merged[merged$Prediction == 1, ]
 }
+
+# get default alpha value for predictors that do not hava alpha specified (default = min alpha)
+pred_config <- getDefaultAlpha(pred_config, merged = merged)
 ```
 
 ```{r computePRC}
 # get all cell types in merged
-cell_types <- unique(merged$CellType)
+cell_types <- unique(merged$ExperimentCellType)
 if (length(cell_types) > 1) {
   cell_types <- c("combined", cell_types)
 }
 names(cell_types) <- cell_types
 
 # compute precision-recall tables for all cell types
-pos_col <- snakemake@params$expt_positive_column
+pos_col <- "Regulated"
 pr <- lapply(cell_types, FUN = calcPRCurves, df = merged, pred_config = pred_config,
              pos_col = pos_col)
 
@@ -130,7 +135,7 @@ for (i in seq_along(pr_plots)) {
 
 ## Precision-recall curves {.tabset .tabset-pills}
 
-```{r results='asis', fig.cap="Precision-recall curves", fig.height=4.5, fig.width=7.5, warning=FALSE}
+```{r results='asis', fig.cap=cap, fig.height=4.5, fig.width=7.5, warning=FALSE}
 # print plots for every cell type in tabs
 for (i in cell_types){
   cat("###", i, '{.unlisted .unnumbered}', '\n', '<br>', '\n')
@@ -138,11 +143,18 @@ for (i in cell_types){
   cat('\n', '<br>', '\n\n')
 }
 cat("## {.unlisted .unnumbered}")
+
+# figure caption
+cap <- paste("Precision-recall curves for all predictors in all matching experimental cell types.",
+             "Dots represent alpha cutoff values as specified in pred_config file. If no alpha was",
+             "set, the minium alpha in predictions was taken by default, respectively the maximum",
+             "for inverse predictors. Distance to TSS was added as baseline predictor and computed",
+             "from the provided 'gene universe'.")
 ```
 
 ## Performance summary
 
-```{r perfSummary, fig.cap = "Precision-recall summary"}
+```{r perfSummary, fig.cap = cap}
 # convert pr summary tables to one table and reformat for printing
 perf_summary_print <- perf_summary %>% 
   bind_rows(.id = "cell_type") %>% 
@@ -163,6 +175,9 @@ datatable(
   ),
   autoHideNavigation = TRUE
 )
+
+cap <- paste("Precision-recall performance summary for predictors. Table shows preformance metrics",
+             "and precision and recall at specified alpha and minimum sensitity (recall) of 0.7.")
 ```
 
 ***
@@ -217,7 +232,8 @@ merged <- labelPairs(merged, sig_col = "Significant")
 
 # make scatter plots
 es_scatters <- lapply(cell_types, FUN = predScatterPlots, df = merged, y_col = "EffectSize",
-                      point_size = 2, text_size = 13, pred_names_col = "pred_name_long")
+                      point_size = 2, text_size = 13, alpha_value = 1,
+                      pred_names_col = "pred_name_long")
 
 # calculate plot dimensions based on number of predictors
 es_scatter_dims <- get_row_col(es_scatters[[1]])
@@ -231,7 +247,7 @@ for (n in names(es_scatters)) {
 }
 ```
 
-```{r, results='asis', fig.cap="Predictors versus effect size", fig.height=plot_height, fig.width=plot_width}
+```{r, results='asis', fig.cap=cap, fig.height=plot_height, fig.width=plot_width}
 # print plots for every cell type in tabs
 for (i in cell_types){
   cat("##", i, '{.unlisted .unnumbered}', '\n', '<br>', '\n')
@@ -239,6 +255,10 @@ for (i in cell_types){
   cat('\n', '<br>', '\n\n')
 }
 cat("# {.unlisted .unnumbered}")
+
+cap <- paste("Predictors versus experimental effect size. Effect size is taken from 'EffectSize'",
+             "column in experimental data, while predictors correspond to predictor values from", 
+             "prediction files.")
 ```
 
 ***
@@ -279,3 +299,28 @@ cap <- paste("Distance to TSS distributions for all E-G pairs in experimental da
 # Sources
 * <a download="comparePredictionsToExperiment.Rmd" href="`r base64enc::dataURI(file = params$rmd, mime = 'text/rmd',
     encoding = 'base64')`">R Markdown source file (to produce this document)</a>
+
+
+
+```{r jibber, eval=FALSE}
+# assign prediction class to merged dataset
+merged_annot <- addPredictionClassLabels(merged, perf_summary = perf_summary, pos_col = pos_col)
+
+# make one nice PR table
+pr_df <- pr_dfs %>% 
+  bind_rows(.id = "CellType") %>% 
+  left_join(select(pred_config, pred_id, pred_col, pred_uid, pred_name_long), by = "pred_uid") %>% 
+  select(pred_uid, pred_id, pred_col, CellType, pred_name_long,  alpha, precision, recall, F1)
+
+# create output directory for PR data
+pr_dir <- here(here(dirname(snakemake@input$merged), "PRC"))
+dir.create(pr_dir, recursive = TRUE, showWarnings = FALSE)
+
+# write PR table to file
+pr_files <- here(pr_dir, paste0(names(pr_df), "_pr_curve.txt"))
+for (i in seq_along(pr_df)) {
+  write.table(pr_df[[i]], file = pr_files[[i]], sep="\t", quote = FALSE, row.names = FALSE)
+}
+
+# write performance summary to file
+```

@@ -1,4 +1,0 @@
-pred_id pred_col  boolean alpha aggregate_function  fill_value  inverse_predictor pred_name_long
-K562HiC ABC.Score FALSE 0.015 sum 0 FALSE "ABC score, K562 HiC data"
-K562HiC distance FALSE  NA  mean Inf TRUE  "Distance ABC predictions"
-AvgHiC  ABC.Score FALSE 0.015  sum 0 FALSE "ABC score, averaged HiC data"

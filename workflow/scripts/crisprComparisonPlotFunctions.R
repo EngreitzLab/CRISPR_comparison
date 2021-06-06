@@ -89,7 +89,7 @@ makePRCurvePlot <- function(pr_df, pred_config, pct_pos, min_sensitivity = 0.7,
 
 # make scatter plots of one column (y) against all predictors (x) (default: combined == all cells)
 predScatterPlots <- function(df, y_col, pred_names_col = "pred_uid", point_size = 2,
-                             text_size = 13, cell_type = "combined") {
+                             text_size = 13, alpha_value = 1, cell_type = "combined") {
   
   # get data for specified cell type
   df_ct <- getCellTypeData(df, cell_type = cell_type)
@@ -97,7 +97,7 @@ predScatterPlots <- function(df, y_col, pred_names_col = "pred_uid", point_size 
   # plot each predictor against effect size
   ggplot(df_ct, aes(x = pred_value, y = get(y_col), color = scatterplot_color)) +
     facet_wrap(~get(pred_names_col), scales = "free") +
-    geom_point(size = point_size) +
+    geom_point(size = point_size, alpha = alpha_value) +
     scale_color_manual(values = c("Activating" = "red", "Repressive" = "blue", 
                                   "Not Significant" = "gray")) +
     labs(title = paste("Predictors vs", y_col), x = "Predictor value", y = y_col, color = "") +
@@ -161,7 +161,7 @@ plotDistanceDistribution <- function(df, dist = "baseline.distToTSS", pos_col = 
 getCellTypeData <- function(df, cell_type) {
   
   if (cell_type != "combined") {
-    df <- subset(df, CellType == cell_type)
+    df <- subset(df, ExperimentCellType == cell_type)
   } 
   
   return(df)
@@ -327,7 +327,7 @@ addPredictionClassLabels <- function(df, perf_summary, pos_col = "Regulated") {
   # add alpha thresholds to df
   df <- perf_summary %>% 
     select(cell_type, pred_uid, alpha_cutoff, inverse_predictor) %>% 
-    left_join(x = df, y = ., by = c("CellType" = "cell_type", "pred_uid"))
+    left_join(x = df, y = ., by = c("ExperimentCellType" = "cell_type", "pred_uid"))
   
   # invert iverse predictor values and generate labels (TP, FP, TN, FN)
   pos_col <- sym(pos_col)  ## create symbol from column name for tidy evaluation
@@ -395,4 +395,34 @@ get_row_col <- function(p) {
   n <- length(unique(ggplot_build(p)$data[[1]]$PANEL))
   par <- ggplot_build(p)$layout$facet$params
   wrap_dims(n, par$nrow, par$ncol)
+}
+
+# get default alpha values for all predictors in pred_config that have alpha == NA
+getDefaultAlpha <- function(pred_config, merged) {
+  
+  # get predictors with missing alpha
+  missing_alpha <- filter(pred_config, is.na(alpha))
+  
+  # get default alpha for these (if there are any)
+  if (nrow(missing_alpha) > 0) {
+    alpha <- mapply(FUN = get_alpha_min, predictor = missing_alpha$pred_uid,
+                    inverse = missing_alpha$inverse_predictor, MoreArgs = list(merged = merged),
+                    SIMPLIFY = FALSE)
+    alpha <- unlist(alpha)
+    
+    # set alpha in pred_config to default alpha for these predictors
+    pred_config$alpha <- replace(pred_config$alpha, list = is.na(pred_config$alpha), values = alpha)
+    
+  }
+  
+  return(pred_config)
+  
+}
+
+# get minimum (or maximum) predictor value from merged data for default alpha values
+get_alpha_min <- function(merged, predictor, inverse = FALSE) {
+  merged %>% 
+    filter(pred_uid == predictor, Prediction == 1) %>% 
+    summarize(alpha = if_else(inverse == TRUE, max(pred_value), min(pred_value))) %>% 
+    pull(alpha)
 }

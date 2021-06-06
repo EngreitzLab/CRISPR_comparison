@@ -14,26 +14,22 @@ elements. See the configuration section below for how to handle these cases.
 Other notes:
 
  * There must be both experimental positives and negatives in the experimental data file in order to
- produce PR curves. If only positives are available, the plotting module will fail but useful
- intermediate files will still be produced
- * Each prediction file may have multiple score columns. The names of these columns may be the same
- across prediction files - they will be differentiated based on dataset name (as defined by the
- prediction table). The combination of dataset name and prediction column should be unique. TO DO:
- Check for this.
- * The code currently overlaps on GeneSymbol (not on gene TSS coordinates)
+ produce PR curves.
+ * The code currently overlaps based on gene symbols (not on gene TSS coordinates)
 
 ## Requirements
- * Required Inputs (see below for formats)
+ * Inputs (see below for formats):
  	* One experimental data file 
  	* At least one predictions file
  	* Configuration file describing how predictor should be aggregated
+ 	* (optional) Cell type mappings between cell types in predictions and experiment
  	
 ### Dependencies
 Dependencies are automatically handled via conda when executing the workflow via snakemake (see
 below). Conda environment files can be found in `workflow/envs`. If comparisons are performed
 without conda, following R dependencies are required:
 
-```
+```sh
 # base R:
 R (>=4.0.0)
 
@@ -53,38 +49,47 @@ plotly (>=4.9.3)
 ## File Formats
 
 * Experimental Data
-  * <https://docs.google.com/spreadsheets/d/1Tl_fdPeAeiVkZnettWxeMJW3zL5zfFRcC2TV-vmQRLQ/edit#gid=257851280>. 
-  * Not all of these columns are required. See `resources/example/input/K562.ExperimentalData.slim.txt`
-  for list of required columns
+  * <https://docs.google.com/spreadsheets/d/1xold84upBFigZPFQGUMeNC5t2id-Bub_Y1o5Xid_MHw/edit?usp=sharing>. 
+  * See `resources/example/experimental_data_chrX.txt.gz` as an example.
 
 * Predictions
-  * <https://docs.google.com/spreadsheets/d/1BQBFC4PzPA8v3tA_OkSp2lU1YpO74uwmkEa2TJTt-ic/edit#gid=0>
-  * See `resources/example/input/K562.ABC.Predictions.AvgHiC.chrX.ENCODE.format.txt.gz` for example. 
+  * <https://docs.google.com/spreadsheets/d/1xold84upBFigZPFQGUMeNC5t2id-Bub_Y1o5Xid_MHw/edit?usp=sharing>
+  * See `resources/example/K562_ABC_K562HiC_chrx.txt.gz` as an example. 
 
 ## Configuring the snakemake workflow
 The `config/config.yml` file is used to specify comparisons that should be performed. See the
 comparison `"example"` in this file as an example. In addition to the predictions and experiment
 input files, each comparison requires a prediction config file (pred_config) in .txt format. This
-file specifies how the predictions should be handled and the behavior of the comparison code for
-this predictor depends on it's content:
+file specifies how the different predictors should be handled and the behavior of the comparison
+code for this predictor depends on its content:
 
- * pred.col: must match the name of the column in the predictions file
- * agg.func: In the case that an experimentally tested element overlaps multiple predicted elements,
- how should the predicted elements be aggregated to the level of the tested element. 
- * fill.val: In the case that an experimentally tested element does not overlap any predicted
+ * pred_id: Short name for each predictor. Same as the names of 'pred' in the `config.yml` file.
+ * pred_col: Column name in prediction file containing the predictor values. Following the
+ aforementioned file format this is typlically 'Score'.
+ * boolean: (TRUE/FALSE) is this predictor binary, or os this a quantitative prediction score?
+ * alpha: Predictor score cutoff for plots. Can be NA if not applicable or unknown.
+ * aggregate_function: In the case that an experimentally tested element overlaps multiple predicted
+ elements, how should the predicted elements be aggregated to the level of the tested element. 
+ * fill_value: In the case that an experimentally tested element does not overlap any predicted
  elements, what value should be filled in.
- * lowerIsMoreConfident: Set to TRUE if lower values of the predictor signify more confidence in the
- prediction. This is appropraite for predictors such as linear distance or pvalue. It is generally
- preferred for this column to be FALSE.
+ * inverse_predictor: Set to TRUE if lower values of the predictor signify more confidence in the
+ prediction. This is appropriate for predictors such as linear distance or pvalue.
+ * pred_name_long: A pretty name (2-3 words) for the predictor to make plots and tables nicer.
  
-See `resources/example/input/pred_confg.txt` for an example.
+See `resources/example/pred_config.txt` for an example. If this file is left out (`NULL` in 
+`config.txt`), a file with default values will be generated, however they might not be appropriate
+for the provided predictors.
 
 ## Sample command
 Following command can be used to perform all specified comparisons using snakemake with conda to
 automatically handle dependencies. This requires that snakemake (>=5.10.0) and conda
-(e.g. miniconda) are installed.
+(e.g. [miniconda](https://docs.conda.io/en/latest/miniconda.html)) are installed.
 
-```
+```sh
 # perform all comparisons specified in config.yml (-n = dryrun, remove for execution)
-snakemake --use-conda -n
+snakemake --use-conda -j1 -n
 ```
+
+All generated output including the main .html document are saved to `results/example/`. For other 
+comparison, the subdirectory in results will be named after the comparison name as specified in the
+`config.yml` file.

@@ -1,6 +1,8 @@
 
 ## Create a pred_config.txt file with default parameters for comparisons where none is provided
 
+message("pred_config file not provided, generating one with default parameters.")
+
 # create pred_config table with default values for each predictor set. this assumes that the column
 # with the predictor value is called "Score" and it is treated like a quantitative score, where
 # higher values correspond to higher confidence.
