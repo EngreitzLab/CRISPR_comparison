@@ -43,6 +43,10 @@ calcPRCurves <- function(df, pred_config, pos_col, cell_type = "combined") {
 # create performance summary table for all predictors in a PR table
 makePRSummaryTable <- function(pr_df, pred_config, min_sensitivity = 0.7) {
   
+  # remove any boolean predictors since the following metrics don't make sense for them
+  bool_preds <- pull(filter(pred_config, boolean == TRUE), pred_uid)
+  pr_df <- filter(pr_df, !pred_uid %in% bool_preds)
+  
   # compute performance summary for each predictor
   perf_summary <- pr_df %>% 
     group_split(pred_uid) %>% 
@@ -74,10 +78,19 @@ makePRCurvePlot <- function(pr_df, pred_config, pct_pos, min_sensitivity = 0.7,
   # add pretty predictor names to pr_df for plotting
   pr_df <- left_join(pr_df, select(pred_config, pred_uid, pred_name_long), by = "pred_uid")
   
-  # create PRC plot
-  ggplot(pr_df, aes(x = recall, y = precision, color = pred_name_long)) +
+  # separate pr data into quantitative and boolean predictors
+  bool_preds <- pull(filter(pred_config, boolean == TRUE), pred_uid)
+  pr_quant <- filter(pr_df, !pred_uid %in% bool_preds)
+  pr_bool <- filter(pr_df, pred_uid %in% bool_preds)
+  
+  # get precision and recall for boolean predictor at alpha 1
+  pr_bool <- filter(pr_bool, alpha == 1)
+  
+  # create PRC plot (caution, this assumes that there at least 1 quant and 1 bool predictor!)
+  ggplot(pr_quant, aes(x = recall, y = precision, color = pred_name_long)) +
     geom_line(size = 1) +
     geom_point(data = pr_threshold, size = point_size) +
+    geom_point(data = pr_bool, size = point_size) +
     geom_hline(yintercept = pct_pos, linetype = "dashed", color = "black") +
     labs(title = plot_name, x  = "Recall", y = "Precision", color = "") + 
     coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) + 

@@ -45,7 +45,7 @@ if (!is.null(snakemake@params$cell_type_mapping)) {
 # QC input data
 qcPredConfig(pred_config)
 qcExperiment(expt, experimentalPositiveColumn = "Significant")
-qcPredictions(pred_list)
+qcPredictions(pred_list, pred_config)
 
 ## process input data ------------------------------------------------------------------------------
 
@@ -74,9 +74,10 @@ merged <- combineAllExptPred(expt = expt,
                              outdir = outdir)
 
 # add simple default baseline predictors
-message("Adding baseline predictors:\n\tdistance to TSS")
+message("Adding baseline predictors:\n\tdistance to TSS\n\tnearest TSS")
 dist_to_tss <- computeDistToTSS(expt)
-merged <- rbind(merged, dist_to_tss)
+nearest_tss <- nearestTSSPred(expt, gene_universe = genes)
+merged <- rbind(merged, dist_to_tss, nearest_tss)
 
 # rename 'CellType' column from experimental data
 colnames(merged)[colnames(merged) == "CellType"] <- "ExperimentCellType"

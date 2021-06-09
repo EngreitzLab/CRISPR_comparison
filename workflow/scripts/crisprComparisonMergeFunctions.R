@@ -45,21 +45,44 @@ qcExperiment <- function(expt, experimentalPositiveColumn) {
   message("Done")
 }
 
-qcPredictions <- function(pred_list)  {
+qcPredictions <- function(pred_list, pred_config)  {
   
   message("Running QC on predictions")
   
   # make sure all column names are valid
   illegal_cols <- c("experiment", "MappedCellType", "PredCellType")
-  dummy <- lapply(pred_list, FUN = function(pred) {
+  invisible(lapply(pred_list, FUN = function(pred) {
     wrong_pred_cols <- intersect(colnames(pred), illegal_cols)
     if (length(wrong_pred_cols) > 0) {
       stop("Illegal columns in predictions: ", paste(wrong_pred_cols, collapse = ", "), call. = FALSE)
     }
-  })
+  }))
+  
+  # check that pred_col formats are ok
+  invisible(lapply(names(pred_list), FUN = function(pred_name) { 
+    pred <- pred_list[[pred_name]]
+    conf <- pred_config[pred_config$pred_id == pred_name, ]
+    invisible(mapply(FUN = check_pred_col, pred_col = conf$pred_col, boolean = conf$boolean,
+                     MoreArgs = list(df = pred)))
+    }))
   
   message("Done")
   
+}
+
+# check if a given predictor column has the correct format
+check_pred_col <- function(df, pred_col, boolean) {
+  pred_values <- df[[pred_col]]
+  if (boolean == TRUE) {
+    if (any(!unique(as.numeric(pred_values)) %in% c(0, 1))) {
+      stop("Incorrect format for boolean predictor. Must be either 1/0 or TRUE/FALSE",
+           call. = FALSE)
+    }
+  } else {
+    if (!is.numeric(pred_values)) {
+      stop("Continuous predictors must have numeric values.", call. = FALSE)
+    }
+  }
 }
 
 # check for valid pred_config.txt input

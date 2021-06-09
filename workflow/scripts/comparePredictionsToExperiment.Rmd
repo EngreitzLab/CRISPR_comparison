@@ -64,9 +64,9 @@ performance.
 ```{r processInput}
 # add baseline predictors to pred_config
 pred_config <- data.frame(
-  pred_id = "baseline", pred_col = "distToTSS", boolean = FALSE, alpha = 1e4,
-  aggregate_function = "mean", fill_value = Inf, inverse_predictor = TRUE,
-  pred_name_long = "Distance to TSS") %>% 
+  pred_id = "baseline", pred_col = c("distToTSS", "closestTSS"), boolean = c(FALSE, TRUE),
+  alpha = c(1e4, 1), aggregate_function = c("mean", "max"), fill_value = c(Inf, 0),
+  inverse_predictor = c(TRUE, FALSE), pred_name_long = c("Distance to TSS", "Closest TSS")) %>% 
   rbind(pred_config, .)
 
 # add unique predictor identifier to pred_config
@@ -108,7 +108,7 @@ pr <- lapply(cell_types, FUN = calcPRCurves, df = merged, pred_config = pred_con
 
 # create performance summary tables
 perf_summary <- lapply(pr, FUN = makePRSummaryTable, pred_config = pred_config,
-                     min_sensitivity = snakemake@params$min_sensitivity)
+                       min_sensitivity = snakemake@params$min_sensitivity)
 ```
 
 ```{r plotPRC, warning=FALSE}
@@ -187,9 +187,14 @@ The scores of each predictor is compared between experimental positives and nega
 assessment of how well it distinguishes true enhancer - gene pairs from negatives.
 
 ```{r, warning=FALSE}
+# remove boolean predictors for these plots
+bool_preds <- pull(filter(pred_config, boolean == TRUE), pred_uid)
+merged_quant <- filter(merged, !pred_uid %in% bool_preds)
+
 # create plots showing predictor values as a function of experimental outcome
-pred_plots <- lapply(cell_types, FUN = plotPredictorsVsExperiment, df = merged, pos_col = pos_col,
-                     pred_names_col = "pred_name_long", point_size = 2, text_size = 13)
+pred_plots <- lapply(cell_types, FUN = plotPredictorsVsExperiment, df = merged_quant,
+                     pos_col = pos_col, pred_names_col = "pred_name_long", point_size = 2,
+                     text_size = 13)
 
 # calculate plot dimensions based on number of predictors
 pred_plots_dims <- get_row_col(pred_plots[[1]])
@@ -228,10 +233,10 @@ intuitive way.
 
 ```{r effectSizeScatter, include=FALSE}
 # add label for each pair based on whether it's significant and activates or represses it's target
-merged <- labelPairs(merged, sig_col = "Significant")
+merged_quant <- labelPairs(merged_quant, sig_col = "Significant")
 
 # make scatter plots
-es_scatters <- lapply(cell_types, FUN = predScatterPlots, df = merged, y_col = "EffectSize",
+es_scatters <- lapply(cell_types, FUN = predScatterPlots, df = merged_quant, y_col = "EffectSize",
                       point_size = 2, text_size = 13, alpha_value = 1,
                       pred_names_col = "pred_name_long")
 
