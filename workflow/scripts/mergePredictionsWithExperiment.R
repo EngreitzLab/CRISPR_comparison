@@ -26,10 +26,12 @@ pred_files <- snakemake@input$predictions
 names(pred_files) <- snakemake@params$pred_names
 pred_list <- lapply(pred_files, FUN = loadPredictions, show_progress = FALSE)
 
-# load gene universe file
-genes <- fread(snakemake@input$gene_universe)
-colnames(genes) <- c("chrTSS", "startTSS", "endTSS", "gene", "score", "strandTSS")
-genes <- genes[, -c("score", "strandTSS")]
+# load tss and gene universe files
+tss_annot <- fread(snakemake@input$tss_universe)
+colnames(tss_annot) <- c("chrTSS", "startTSS", "endTSS", "gene", "score", "strandTSS")
+tss_annot <- tss_annot[, -c("score", "strandTSS")]
+gene_annot <- fread(snakemake@input$gene_universe)
+colnames(gene_annot) <- c("chr", "start", "end", "gene", "score", "strand")
 
 # load pred_config file
 pred_config <- fread(snakemake@input$pred_config, colClasses = c("alpha" = "numeric"))
@@ -54,7 +56,7 @@ outdir <- dirname(snakemake@output$merged)
 
 # filter experimental data for genes in gene universe
 missing_file <- file.path(outdir, "expt_missing_from_gene_universe.txt")
-expt <- filterExptGeneUniverse(expt, genes = genes, missing_file = missing_file)
+expt <- filterExptGeneUniverse(expt, genes = tss_annot, missing_file = missing_file)
 
 # cell type matching and filter predictions for cell types in experimental data
 message("Mapping cell types in predictions to cell types in experimental data")
@@ -76,8 +78,9 @@ merged <- combineAllExptPred(expt = expt,
 # add simple default baseline predictors
 message("Adding baseline predictors:\n\tdistance to TSS\n\tnearest TSS")
 dist_to_tss <- computeDistToTSS(expt)
-nearest_tss <- nearestTSSPred(expt, gene_universe = genes)
-merged <- rbind(merged, dist_to_tss, nearest_tss)
+nearest_tss <- nearestFeaturePred(expt, features = tss_annot, name = "nearestTSS")
+nearest_gene <- nearestFeaturePred(expt, features = gene_annot, name = "nearestGene")
+merged <- rbind(merged, dist_to_tss, nearest_tss, nearest_gene)
 
 # rename 'CellType' column from experimental data
 colnames(merged)[colnames(merged) == "CellType"] <- "ExperimentCellType"

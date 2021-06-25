@@ -23,23 +23,25 @@ computeDistToTSS <- function(expt) {
   
 }
 
-# nearest TSS
-nearestTSSPred <- function(expt, gene_universe) {
+
+# nearest genomic feature (e.g. TSS or gene body) to the candidate enhancer. features needs to be a
+# data frame in bed style format, i.e chr, start, end, name, etc.
+nearestFeaturePred <- function(expt, features, name) {
   
   # create GRanges object containing TSS coordinates
-  tss <- gene_universe[, c("chrTSS", "startTSS", "endTSS", "gene")]
-  colnames(tss) <- c("chr", "start", "stop", "name")
-  tss <- makeGRangesFromDataFrame(tss, keep.extra.columns = TRUE)
+  features <- features[, 1:4]
+  colnames(features) <- c("chr", "start", "stop", "name")
+  features <- makeGRangesFromDataFrame(features, keep.extra.columns = TRUE)
   
   # get closest TSS to every CRE in expt
-  expt <- nearest_genomic_feature(expt, features = tss)
+  expt <- nearest_genomic_feature(expt, features = features)
   
   # create predictor whether the gene of each pair is the closest TSS
   output <- data.table(
     expt[, -"nearest_feature"],
     PredictionCellType = NA_character_,
     pred_id = "baseline",
-    pred_col = "closestTSS",
+    pred_col = name,
     pred_value = as.numeric(expt$nearest_feature == expt$measuredGeneSymbol),
     Prediction = 1
   )

@@ -24,6 +24,7 @@ rule mergePredictionsWithExperiment:
   input:
     predictions = lambda wildcards: config["comparisons"][wildcards.comparison]["pred"].values(),
     experiment  = lambda wildcards: config["comparisons"][wildcards.comparison]["expt"],
+    tss_universe = lambda wildcards: config["comparisons"][wildcards.comparison]["tss_universe"],
     gene_universe = lambda wildcards: config["comparisons"][wildcards.comparison]["gene_universe"],
     pred_config = get_pred_config
   output:

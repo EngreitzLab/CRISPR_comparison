@@ -64,9 +64,15 @@ performance.
 ```{r processInput}
 # add baseline predictors to pred_config
 pred_config <- data.frame(
-  pred_id = "baseline", pred_col = c("distToTSS", "closestTSS"), boolean = c(FALSE, TRUE),
-  alpha = c(1e4, 1), aggregate_function = c("mean", "max"), fill_value = c(Inf, 0),
-  inverse_predictor = c(TRUE, FALSE), pred_name_long = c("Distance to TSS", "Closest TSS")) %>% 
+    pred_id = "baseline",
+    pred_col = c("distToTSS", "nearestTSS", "nearestGene"),
+    boolean = c(FALSE, TRUE, TRUE),
+    alpha = c(1e4, 1, 1),
+    aggregate_function = c("mean", "max", "max"),
+    fill_value = c(Inf, 0, 0),
+    inverse_predictor = c(TRUE, FALSE, FALSE),
+    pred_name_long = c("Distance to TSS", "Nearest TSS", "Nearest Gene")
+  ) %>% 
   rbind(pred_config, .)
 
 # add unique predictor identifier to pred_config
@@ -304,28 +310,3 @@ cap <- paste("Distance to TSS distributions for all E-G pairs in experimental da
 # Sources
 * <a download="comparePredictionsToExperiment.Rmd" href="`r base64enc::dataURI(file = params$rmd, mime = 'text/rmd',
     encoding = 'base64')`">R Markdown source file (to produce this document)</a>
-
-
-
-```{r jibber, eval=FALSE}
-# assign prediction class to merged dataset
-merged_annot <- addPredictionClassLabels(merged, perf_summary = perf_summary, pos_col = pos_col)
-
-# make one nice PR table
-pr_df <- pr_dfs %>% 
-  bind_rows(.id = "CellType") %>% 
-  left_join(select(pred_config, pred_id, pred_col, pred_uid, pred_name_long), by = "pred_uid") %>% 
-  select(pred_uid, pred_id, pred_col, CellType, pred_name_long,  alpha, precision, recall, F1)
-
-# create output directory for PR data
-pr_dir <- here(here(dirname(snakemake@input$merged), "PRC"))
-dir.create(pr_dir, recursive = TRUE, showWarnings = FALSE)
-
-# write PR table to file
-pr_files <- here(pr_dir, paste0(names(pr_df), "_pr_curve.txt"))
-for (i in seq_along(pr_df)) {
-  write.table(pr_df[[i]], file = pr_files[[i]], sep="\t", quote = FALSE, row.names = FALSE)
-}
-
-# write performance summary to file
-```

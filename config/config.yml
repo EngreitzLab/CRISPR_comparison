@@ -7,7 +7,8 @@ comparisons:
       AvgHiC: "resources/example/K562_ABC_AvgHiC_chrx.txt.gz"
     expt:
       "resources/example/experimental_data_chrX.txt.gz"
-    gene_universe: "resources/example/RefSeqCurated.170308.bed.CollapsedGeneBounds.TSS500bp.sorted.chrX.bed.gz"
+    gene_universe: "resources/example/RefSeqCurated.170308.bed.CollapsedGeneBounds.sorted.chrX.bed.gz"
+    tss_universe: "resources/example/RefSeqCurated.170308.bed.CollapsedGeneBounds.TSS500bp.sorted.chrX.bed.gz"
     pred_config: "resources/example/pred_config.txt"
     cell_type_mapping: 
       K562HiC: "resources/example/ABC_cell_type_mapping.txt"

@@ -379,7 +379,7 @@ fillMissingPredictions <- function(df, config, agg_cols) {
 # filter experimental data for genes in gene universe and add TSS coordinates to experimental data
 filterExptGeneUniverse <- function(expt, genes, missing_file = NULL) {
   
-  # remove any exisiting TSS annotations from expt data
+  # remove any existing TSS annotations from expt data
   expt_cols <- colnames(expt)
   tss_cols <- expt_cols %in% c("chrTSS", "startTSS", "endTSS")
   expt <- expt[, !tss_cols, with = FALSE]
