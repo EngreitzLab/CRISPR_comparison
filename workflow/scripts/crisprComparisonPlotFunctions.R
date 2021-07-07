@@ -94,7 +94,6 @@ makePRCurvePlot <- function(pr_df, pred_config, pct_pos, min_sensitivity = 0.7,
     geom_hline(yintercept = pct_pos, linetype = "dashed", color = "black") +
     labs(title = plot_name, x  = "Recall", y = "Precision", color = "") + 
     coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) + 
-    scale_colour_brewer(type = "qual", palette = "Set1") +
     theme_bw() +
     theme(text = element_text(size = text_size))
   

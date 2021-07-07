@@ -91,22 +91,7 @@ colnames(merged)[colnames(merged) == "CellType"] <- "ExperimentCellType"
 #                 summary_file = merged_summary_file)
 
 # write merged data to main output file
-outfile <- snakemake@output$merged
-if (tools::file_ext(outfile) == ".gz") {
-  
-  # write output to gzip file
-  gz <- gzfile(outfile, open = "w")
-  write.table(merged, file = gz, sep = "\t", quote = FALSE, col.names = TRUE,
-              row.names = FALSE)
-  close(gz)
-  
-} else {
-  
-  # write output to non-compressed text file
-  write.table(merged, file = outfile, sep = "\t", quote = FALSE, col.names = TRUE,
-              row.names = FALSE)
-  
-}
+readr::write_tsv(merged, file = snakemake@output$merged)
 
 message("\nAll done!")
 

@@ -28,7 +28,7 @@ rule mergePredictionsWithExperiment:
     gene_universe = lambda wildcards: config["comparisons"][wildcards.comparison]["gene_universe"],
     pred_config = get_pred_config
   output:
-    merged = "results/{comparison}/expt_pred_merged.txt"
+    merged = "results/{comparison}/expt_pred_merged.txt.gz"
   log: "results/{comparison}/logs/mergePredictionsWithExperiment.log"
   params:
     pred_names = lambda wildcards: config["comparisons"][wildcards.comparison]["pred"].keys(),
@@ -40,7 +40,7 @@ rule mergePredictionsWithExperiment:
 # perform comparisons of predictions to experimental data
 rule comparePredictionsToExperiment:
   input:
-    merged = "results/{comparison}/expt_pred_merged.txt",
+    merged = "results/{comparison}/expt_pred_merged.txt.gz",
     pred_config = get_pred_config
   output:
     "results/{comparison}/crispr_comparison.html"
