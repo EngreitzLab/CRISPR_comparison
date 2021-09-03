@@ -22,18 +22,20 @@ library(DT)
 library(plotly)
 library(ROCR)
 library(caTools)
+library(UpSetR)
 source(file.path(snakemake@scriptdir, "crisprComparisonPlotFunctions.R"))
 ```
 
 ```{r loadData}
 # load merged data and pred_config file
 merged <- fread(here(snakemake@input$merged), colClasses = c("ValidConnection" = "character"))
-pred_config <- fread(here(snakemake@input$pred_config), colClasses = c("alpha" = "numeric"))
+pred_config <- fread(here(snakemake@input$pred_config),
+                     colClasses = c("alpha" = "numeric", "color" = "character"))
 
 # extract predictions and experiment input files from config in snakemake object
-comparison <- snakemake@wildcards$comparison
-expt_file <- basename(snakemake@config$comparisons[[comparison]]$expt)
-pred_file <- basename(unlist(snakemake@config$comparisons[[comparison]]$pred))
+comp_config <- snakemake@config$comparisons[[snakemake@wildcards$comparison]]
+expt_file <- basename(comp_config$expt)
+pred_file <- basename(unlist(comp_config$pred))
 ```
 
 <br>
@@ -71,9 +73,18 @@ pred_config <- data.frame(
     aggregate_function = c("mean", "max", "max"),
     fill_value = c(Inf, 0, 0),
     inverse_predictor = c(TRUE, FALSE, FALSE),
-    pred_name_long = c("Distance to TSS", "Nearest TSS", "Nearest Gene")
+    pred_name_long = c("Distance to TSS", "Nearest TSS", "Nearest Gene"),
+    color = rep(NA_character_, 3)
   ) %>% 
   rbind(pred_config, .)
+
+# set colors for baseline predictors if colors are set for the other predictors
+if (any(!is.na(pred_config$color))) {
+  pred_config[tail(seq_len(nrow(pred_config)), 3), "color"] <- c("#ffa600", "#595959", "#bebebe")
+  pred_colors <- deframe(select(pred_config, pred_name_long, color))
+} else {
+  pred_colors <- NULL
+}
 
 # add unique predictor identifier to pred_config
 pred_config <- pred_config %>% 
@@ -87,8 +98,12 @@ merged <- pred_config %>%
 # filter for valid connections
 merged <- subset(merged, ValidConnection == "TRUE")
 
-# add 'Regulated' column to merged data (only significant pairs that have negative effect size)
-merged$Regulated <- merged$Significant == TRUE & merged$EffectSize < 0
+# add 'Regulated' column (only significant pairs that have negative effect size) if not already
+# existing. this allows overwriting this heuristic by encoding it in the experimental data by a
+# column called 'Regulated'
+if (!"Regulated" %in% colnames(merged)) {
+  merged$Regulated <- merged$Significant == TRUE & merged$EffectSize < 0
+}
 
 # filter out CRE-G pairs with missing data if specified
 if (snakemake@params$include_missing_predictions == FALSE) {
@@ -127,7 +142,8 @@ pr_plots <- mapply(FUN = makePRCurvePlot, pr_df = pr, pct_pos = pct_pos,
                    MoreArgs = list(pred_config = pred_config,
                                    min_sensitivity = snakemake@params$min_sensitivity,
                                    plot_name = "PRC full experimental data",
-                                   point_size = 3, text_size = 13),
+                                   line_width = 1.2, point_size = 3.5, text_size = 13,
+                                   colors = pred_colors),
                    SIMPLIFY = FALSE)
 
 # save plots to file
@@ -302,6 +318,47 @@ cat("## {.unlisted .unnumbered}")
 cap <- paste("Distance to TSS distributions for all E-G pairs in experimental data. E-G pairs are",
   "partitioned according to whether they were identified as true enhancer gene interactions or
   negatives")
+```
+
+## Overlapping features
+A plot showing the number of experimentally tested candidate enhancers overlapping provided genomic features. If no features were provided, this plot is not generated.
+
+```{r genomicFeatures}
+# genomic features that were overlapped with enhancers in merged data
+features<- names(comp_config$annotation_features)
+
+if (length(features > 0)) {
+  
+  # columns in merged data containing information on overlapping features
+  feature_cols <- paste0("overlaps_", features)
+  
+  # make upset plots from features overlapping experimentally tested enhancers for each cell type
+  overlap_plots <- lapply(cell_types, FUN = plotOverlappingFeatures, df = merged,
+                          feature_cols = feature_cols)
+  
+  # save plots
+  for (n in names(overlap_plots)) {
+    pdf(here(plotdir,  paste0(n, "_overlappingFeatures.pdf")), height = 5, width = 7, onefile = FALSE)
+    print(overlap_plots[[n]])
+    dev.off()
+  }
+}
+```
+
+```{r, results='asis', fig.height=5, fig.width=7, fig.cap=cap}
+if (length(features > 0)) {
+  
+  # print plots for every cell type in tabs
+  for (i in cell_types){
+    cat("###", i, '{.unlisted .unnumbered}', '\n', '<br>', '\n')
+    print(overlap_plots[[i]])
+    cat('\n', '<br>', '\n\n')
+  }
+  cat("## {.unlisted .unnumbered}")
+  
+  cap <- paste("Genomic features overlapping experimentally tested enhancers.")
+  
+}
 ```
 
 

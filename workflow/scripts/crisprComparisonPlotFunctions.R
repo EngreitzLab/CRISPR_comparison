@@ -64,8 +64,8 @@ makePRSummaryTable <- function(pr_df, pred_config, min_sensitivity = 0.7) {
 
 # make a PR curve plot for a set of provided predictors
 makePRCurvePlot <- function(pr_df, pred_config, pct_pos, min_sensitivity = 0.7,
-                            plot_name = "PRC full experimental data", point_size = 3,
-                            text_size = 15) {
+                            plot_name = "PRC full experimental data", line_width = 1, 
+                            point_size = 3, text_size = 15, colors = NULL) {
   
   # create performance summary
   perf_summary <- makePRSummaryTable(pr_df, pred_config = pred_config,
@@ -87,15 +87,24 @@ makePRCurvePlot <- function(pr_df, pred_config, pct_pos, min_sensitivity = 0.7,
   pr_bool <- filter(pr_bool, alpha == 1)
   
   # create PRC plot (caution, this assumes that there at least 1 quant and 1 bool predictor!)
-  ggplot(pr_quant, aes(x = recall, y = precision, color = pred_name_long)) +
-    geom_line(size = 1) +
+  p <- ggplot(pr_quant, aes(x = recall, y = precision, color = pred_name_long)) +
+    geom_line(size = line_width) +
     geom_point(data = pr_threshold, size = point_size) +
     geom_point(data = pr_bool, size = point_size) +
     geom_hline(yintercept = pct_pos, linetype = "dashed", color = "black") +
-    labs(title = plot_name, x  = "Recall", y = "Precision", color = "") + 
+    labs(title = plot_name, x  = "Recall", y = "Precision", color = "Predictor") + 
     coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) + 
     theme_bw() +
     theme(text = element_text(size = text_size))
+  
+  # add custom colors if any are provided
+  if (!is.null(colors)) {
+    p <- p + 
+      scale_color_manual(values = colors)
+  }
+  
+  # print plot
+  p
   
 }
 
@@ -167,6 +176,30 @@ plotDistanceDistribution <- function(df, dist = "baseline.distToTSS", pos_col = 
   
 }
 
+# make an upset plot of overlapping features for a given cell type
+plotOverlappingFeatures <- function(df, feature_cols, cell_type = "combined") {
+  
+  # get data for specified cell type
+  df_ct <- getCellTypeData(df, cell_type = cell_type)
+  
+  # create table with unique enhancers and overlapping features
+  cre_features <- df_ct %>% 
+    mutate(cre_id = paste0(chrom, ":", chromStart, "-", chromEnd)) %>% 
+    select(c("cre_id", feature_cols)) %>% 
+    distinct() %>% 
+    mutate(across(feature_cols, ~ .x * 1))
+  
+  # set new column names
+  colnames(cre_features) <- sub("overlaps_", "", colnames(cre_features))
+  
+  # create upset plot with overlapping features
+  upset(cre_features, nsets = 10, order.by = "freq", number.angles = 30, point.size = 3.5,
+        line.size = 2, mainbar.y.label = "Enhancers overlapping features",
+        sets.x.label = "Overlapping sites",
+        text.scale = c(1.5, 1.5, 1.2, 1.2, 1.5, 1.5))
+  
+}
+ 
 ## HELPER FUNCTIONS ================================================================================
 
 # get data for a specified cell type or all if cell_type == "combined"

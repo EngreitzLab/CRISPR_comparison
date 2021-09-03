@@ -1,6 +1,7 @@
 ## Merge predictions with experimental data for downstream comparisons of predictions with CRISPR
 ## CRE perturbation data
 
+
 # open log file to collect all messages, warnings and errors
 log <- file(snakemake@log[[1]], open = "wt")
 sink(log)
@@ -15,6 +16,9 @@ suppressPackageStartupMessages(source(simple_predictors_file))
 
 ## load data ---------------------------------------------------------------------------------------
 
+# config entry for this comparison is used to load named list of input files
+config <- snakemake@config$comparisons[[snakemake@wildcards$comparison]]
+
 # load experimental data
 message("Reading experimental data in: ", snakemake@input$experiment)
 expt <- fread(file = snakemake@input$experiment, showProgress = FALSE,
@@ -22,8 +26,7 @@ expt <- fread(file = snakemake@input$experiment, showProgress = FALSE,
 message("\tLoaded experimental data with ", nrow(expt), " rows.\n")
 
 # load prediction files
-pred_files <- snakemake@input$predictions
-names(pred_files) <- snakemake@params$pred_names
+pred_files <- config$pred
 pred_list <- lapply(pred_files, FUN = loadPredictions, show_progress = FALSE)
 
 # load tss and gene universe files
@@ -34,11 +37,13 @@ gene_annot <- fread(snakemake@input$gene_universe)
 colnames(gene_annot) <- c("chr", "start", "end", "gene", "score", "strand")
 
 # load pred_config file
-pred_config <- fread(snakemake@input$pred_config, colClasses = c("alpha" = "numeric"))
+pred_config <- fread(snakemake@input$pred_config,
+                     colClasses = c("alpha" = "numeric", "color" = "character"))
 
 # load cell mapping file if provided
-if (!is.null(snakemake@params$cell_type_mapping)) {
-  cell_mappings <- lapply(snakemake@params$cell_type_mapping, FUN = fread)
+ct_map_files <- config$cell_type_mapping
+if (!is.null(ct_map_files)) {
+  cell_mappings <- lapply(ct_map_files, FUN = fread)
   qcCellMapping(cell_mappings)
 } else {
   cell_mappings <- list()
@@ -48,6 +53,7 @@ if (!is.null(snakemake@params$cell_type_mapping)) {
 qcPredConfig(pred_config)
 qcExperiment(expt, experimentalPositiveColumn = "Significant")
 qcPredictions(pred_list, pred_config)
+
 
 ## process input data ------------------------------------------------------------------------------
 

@@ -88,6 +88,8 @@ check_pred_col <- function(df, pred_col, boolean) {
 # check for valid pred_config.txt input
 qcPredConfig <- function(pred_config) {
   
+  message("Running QC on pred_config file")
+  
   # check that there is no baseline prediction set. baseline is used internally
   if ("baseline" %in% pred_config$pred_id) {
     stop("Prediction set called 'baseline' not allowed. Please rename.", call. = FALSE)
@@ -100,6 +102,20 @@ qcPredConfig <- function(pred_config) {
     stop("pred_id and pred_col in pred_config do not provide unique identifiers for predictions.",
          call. = FALSE)
   }
+  
+  # check that colors are valid options
+  valid_colors <- vapply(pred_config$color, FUN = function(col) {
+    tryCatch(expr = is.matrix(col2rgb(col)),
+             error = function(err) return(FALSE))
+  }, FUN.VALUE = logical(1))
+
+  # raise error if invalid color specification was found
+  invalid_colors <- names(valid_colors[valid_colors == FALSE])
+  if (length(invalid_colors > 0)) {
+    stop("Invalid color specification(s): ", paste(invalid_colors, collapse = ", "), call. = FALSE)
+  }
+  
+  message("Done")
   
 }
 
@@ -155,8 +171,8 @@ map_cell_type <- function(pred, ct_map) {
     # assign new CellType if an experimental cell type was specified
     to_map <- !is.na(pred_ct[["ExperimentCellType"]])
     map_values <- pred_ct[to_map, ][["ExperimentCellType"]]
-    pred_ct$ExperimentCellType <- replace(pred_ct$CellType, list = to_map, values = map_values)
-    
+    pred_ct[to_map, "CellType"] <- map_values
+  
   }
   
   # rename original CellType column in output
@@ -213,7 +229,7 @@ combineSingleExptPred <- function(expt, pred, pred_name, config, outdir) {
   
   # Step 1: merging overlapping enhancer - gene pairs ----------------------------------------------
   
-  message("Overlapping predictions for predictions: ", pred_name)
+  message("Overlapping predictions with experimental data for: ", pred_name)
   
   # subset config to specified predictions
   config_pred <- subset(config, pred_id == pred_name)

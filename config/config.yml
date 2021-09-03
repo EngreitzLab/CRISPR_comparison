@@ -13,3 +13,5 @@ comparisons:
     cell_type_mapping: 
       K562HiC: "resources/example/ABC_cell_type_mapping.txt"
       AvgHiC: "resources/example/ABC_cell_type_mapping.txt"
+    annotation_features: Null
+
