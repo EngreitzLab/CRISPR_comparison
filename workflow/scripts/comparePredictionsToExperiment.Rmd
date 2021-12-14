@@ -127,6 +127,10 @@ pos_col <- "Regulated"
 pr <- lapply(cell_types, FUN = calcPRCurves, df = merged, pred_config = pred_config,
              pos_col = pos_col)
 
+# combine pr tables into one table and save to file for other downstream analyses
+pr_table <- rbindlist(pr, idcol = "ExperimentCellType")
+write_tsv(pr_table, file = here(file.path(dirname(snakemake@output[[1]]), "pr_table.txt.gz")))
+
 # create performance summary tables
 perf_summary <- lapply(pr, FUN = makePRSummaryTable, pred_config = pred_config,
                        min_sensitivity = snakemake@params$min_sensitivity)
