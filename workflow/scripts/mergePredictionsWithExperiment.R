@@ -91,6 +91,13 @@ merged <- rbind(merged, dist_to_tss, nearest_tss, nearest_gene)
 # rename 'CellType' column from experimental data
 colnames(merged)[colnames(merged) == "CellType"] <- "ExperimentCellType"
 
+# add 'Regulated' column (only significant pairs that have negative effect size) if not already
+# existing. this allows overwriting this heuristic by encoding it in the experimental data by a
+# column called 'Regulated'
+if (!"Regulated" %in% colnames(merged)) {
+  merged$Regulated <- merged$Significant == TRUE & merged$EffectSize < 0
+}
+
 # generate and write summary for merged data (TODO: replace by more informative output)
 #merged_summary_file <- file.path(outdir, "expt_pred_merged_summary.txt")
 #writeExptSummary(unique(merged[, seq_len(ncol(merged) - 4), with = FALSE]),

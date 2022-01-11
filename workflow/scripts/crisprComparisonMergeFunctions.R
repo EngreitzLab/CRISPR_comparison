@@ -153,7 +153,7 @@ mapCellTypes <- function(pred_list, cell_mappings) {
 # function to map cell types for one prediction set
 map_cell_type <- function(pred, ct_map) {
   
-  # map cell types is cell type mapping is provided
+  # map cell types if cell type mapping is provided
   if (nrow(ct_map) == 0) {
     
     # simply assume that experimental cell types are identical to prediction cell types
