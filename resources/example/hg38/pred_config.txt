@@ -1,0 +1,4 @@
+pred_id	pred_col	boolean	alpha	aggregate_function	fill_value	inverse_predictor	pred_name_long	color
+K562_ABCPaper	ABC.Score	FALSE	0.015	sum	0	FALSE	K562_ABCPaper.Score	"#ADD8E6"
+K562_2644_refseq	powerlaw.Score	FALSE	0.015	sum	0	FALSE	K562_2644_refSeq.Score	"#03a9f4"
+K562_2644_gencode	powerlaw.Score	FALSE	0.015	max	0	FALSE	K562_2644_altTSS.Score	"#90EE90"

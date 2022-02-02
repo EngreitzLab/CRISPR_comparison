@@ -1,0 +1,19 @@
+
+# comparisons to be performed by the pipeline, copy-paste example for a template
+comparisons:
+  K562_hg38:
+    pred:
+      K562_ABCPaper: "/oak/stanford/groups/akundaje/kmualim/GWAS_test/Test_data/Predictions/K562.Predictions.AvgHiC.ABC0.015.hg38.liftOver.noPromoter.tsv.gz"
+      K562_2644_refseq: "/oak/stanford/groups/akundaje/kmualim/20221701_ENCODEhg38_V2_upload/K562_ID_2644/Predictions/EnhancerPredictionsAllPutative_noPromoter.txt.gz"
+      K562_2644_gencode: "/oak/stanford/groups/akundaje/kmualim/ABC_links/K562_hg38/ID_2644_altTSS/Predictions/EnhancerPredictionsAllPutative_noPromoter.txt.gz"
+    expt:
+      "../resources/ExperimentalData_Fulco_Hg38.altTSS.final_w_header.tsv"
+    gene_universe: "/users/kmualim/CRISPR_comparison/config/RefSeqCurated.170308.bed.CollapsedGeneBounds.hg38.bed"
+    tss_universe: "/users/kmualim/CRISPR_comparison/config/RefSeqCurated.170308.bed.CollapsedGeneBounds.hg38.TSS500bp.bed"
+    pred_config: "../resources/example/pred_config5.txt"
+    cell_type_mapping: 
+    #      K562_hg38ENCODE_2641: "../resources/example/ABC_cell_type_mapping.txt1"
+      K562_ABCPaper: "../resources/example/ABC_cell_type_mapping_orig.txt"
+      K562_2644_refseq: "../resources/example/ABC_cell_type_mapping.txt1"
+      K562_2644_gencode: "../resources/example/ABC_cell_type_mapping.txt1"
+    annotation_features: Null
