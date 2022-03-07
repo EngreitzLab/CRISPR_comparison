@@ -69,10 +69,24 @@ message("Mapping cell types in predictions to cell types in experimental data")
 pred_list <- mapCellTypes(pred_list, cell_mappings = cell_mappings)
 pred_list <- lapply(pred_list, FUN = function(p) p[p$ExperimentCellType %in% expt$CellType, ] )
 
+# verify if bad cell matching resulted in no data for some predictions after matching
+pred_rows <- vapply(pred_list, FUN = nrow, FUN.VALUE = integer(1))
+if (any(pred_rows == 0)) {
+  stop("No predictions left for ", paste(names(pred_rows[pred_rows == 0]), collapse = ", "),
+       " after cell type matching. Check that cell type mapping files are correct.", call. = FALSE)
+}
+
 # check if genes in experimental data are also found in predictions and write to file
 # TODO: make this per cell type
 genes_summary_file <- file.path(outdir, "experimental_genes_in_predictions.txt")
 checkExistenceOfExperimentalGenesInPredictions(expt, pred_list, summary_file = genes_summary_file)
+
+# add 'Regulated' column (only significant pairs that have negative effect size) to experimental
+# data if not already existing. this allows overwriting this heuristic by encoding it in the
+# experimental data by a column called 'Regulated'
+if (!"Regulated" %in% colnames(expt)) {
+  expt$Regulated <- expt$Significant == TRUE & expt$EffectSize < 0
+}
 
 # merge experimental data with predictions
 message("\nMerging experimentals data and predictions:")
@@ -90,13 +104,6 @@ merged <- rbind(merged, dist_to_tss, nearest_tss, nearest_gene)
 
 # rename 'CellType' column from experimental data
 colnames(merged)[colnames(merged) == "CellType"] <- "ExperimentCellType"
-
-# add 'Regulated' column (only significant pairs that have negative effect size) if not already
-# existing. this allows overwriting this heuristic by encoding it in the experimental data by a
-# column called 'Regulated'
-if (!"Regulated" %in% colnames(merged)) {
-  merged$Regulated <- merged$Significant == TRUE & merged$EffectSize < 0
-}
 
 # generate and write summary for merged data (TODO: replace by more informative output)
 #merged_summary_file <- file.path(outdir, "expt_pred_merged_summary.txt")

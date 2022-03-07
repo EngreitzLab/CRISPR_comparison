@@ -265,7 +265,7 @@ calcPerfSummaryOnePred <- function(pr_df, pred_config, min_sensitivity) {
     stop("Input pr_df contains data for more than one unique predictor.", call. = FALSE)
   }
   
-  # make sure that input is sorted accorfing to recall and precision
+  # make sure that input is sorted according to recall and precision
   pr_df <- arrange(pr_df, recall, desc(precision))
   
   # compute AUC and maximum F1

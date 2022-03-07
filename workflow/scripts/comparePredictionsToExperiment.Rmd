@@ -13,11 +13,9 @@ output:
 knitr::opts_chunk$set(echo = FALSE)
 ```
 
-
 ```{r attachPackages, message=FALSE, warning=FALSE}
 # attach required packages and functions
 library(tidyverse)
-library(here)
 library(DT)
 library(plotly)
 library(ROCR)
@@ -28,8 +26,8 @@ source(file.path(snakemake@scriptdir, "crisprComparisonPlotFunctions.R"))
 
 ```{r loadData}
 # load merged data and pred_config file
-merged <- fread(here(snakemake@input$merged), colClasses = c("ValidConnection" = "character"))
-pred_config <- fread(here(snakemake@input$pred_config),
+merged <- fread(snakemake@input$merged, colClasses = c("ValidConnection" = "character"))
+pred_config <- fread(snakemake@input$pred_config,
                      colClasses = c("alpha" = "numeric", "color" = "character"))
 
 # extract predictions and experiment input files from config in snakemake object
@@ -122,7 +120,7 @@ pr <- lapply(cell_types, FUN = calcPRCurves, df = merged, pred_config = pred_con
 
 # combine pr tables into one table and save to file for other downstream analyses
 pr_table <- rbindlist(pr, idcol = "ExperimentCellType")
-write_tsv(pr_table, file = here(file.path(dirname(snakemake@output[[1]]), "pr_table.txt.gz")))
+write_tsv(pr_table, file = file.path(dirname(snakemake@output[[1]]), "pr_table.txt.gz"))
 
 # create performance summary tables
 perf_summary <- lapply(pr, FUN = makePRSummaryTable, pred_config = pred_config,
@@ -144,9 +142,9 @@ pr_plots <- mapply(FUN = makePRCurvePlot, pr_df = pr, pct_pos = pct_pos,
                    SIMPLIFY = FALSE)
 
 # save plots to file
-plotdir <- here(dirname(snakemake@output[[1]]), "plots")
+plotdir <- file.path(dirname(snakemake@output[[1]]), "plots")
 dir.create(plotdir, recursive = TRUE, showWarnings = FALSE)
-pr_plot_files <-  here(plotdir, paste0(names(pr_plots), "_prc_full_expt_data.pdf"))
+pr_plot_files <- file.path(plotdir, paste0(names(pr_plots), "_prc_full_expt_data.pdf"))
 for (i in seq_along(pr_plots)) {
   ggsave(pr_plots[[i]], filename = pr_plot_files[[i]], height = 4.5, width = 7.5, device = "pdf")
 }
@@ -222,7 +220,7 @@ plot_width  <- ceiling(pred_plots_dims[2] * 3.5)
 
 # save scatter plots to files
 for (n in names(pred_plots)) {
-  ggsave(pred_plots[[n]], filename = here(plotdir, paste0(n, "_predictor_vs_experiment.pdf")),
+  ggsave(pred_plots[[n]], filename = file.path(plotdir, paste0(n, "_predictor_vs_experiment.pdf")),
          height = plot_height, width = plot_width, device = "pdf")
 }
 ```
@@ -266,7 +264,7 @@ plot_width  <- ceiling(es_scatter_dims[2] * 3.5)
 
 # save scatter plots to files
 for (n in names(es_scatters)) {
-  ggsave(es_scatters[[n]], filename = here(plotdir, paste0(n, "_EffectSize_scatter_plots.pdf")),
+  ggsave(es_scatters[[n]], filename = file.path(plotdir, paste0(n, "_EffectSize_scatter_plots.pdf")),
          height = plot_height, width = plot_width, device = "pdf")
 }
 ```
@@ -298,7 +296,7 @@ dist_distr <- lapply(cell_types, FUN = plotDistanceDistribution, df = merged,
 
 # save plots to pdfs
 for (n in names(dist_distr)) {
-  ggsave(dist_distr[[n]], filename = here(plotdir, paste0(n, "_distToTSS_distribution.pdf")),
+  ggsave(dist_distr[[n]], filename = file.path(plotdir, paste0(n, "_distToTSS_distribution.pdf")),
          height = 5, width = 7, device = "pdf")
 }
 ```
@@ -335,7 +333,7 @@ if (length(features > 0)) {
   
   # save plots
   for (n in names(overlap_plots)) {
-    pdf(here(plotdir,  paste0(n, "_overlappingFeatures.pdf")), height = 5, width = 7, onefile = FALSE)
+    pdf(file.path(plotdir,  paste0(n, "_overlappingFeatures.pdf")), height = 5, width = 7, onefile = FALSE)
     print(overlap_plots[[n]])
     dev.off()
   }
