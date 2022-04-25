@@ -5,6 +5,32 @@ library(data.table)
 
 ## MAIN FUNCTIONS ==================================================================================
 
+# plot CRISPR E-G pairs overlapping prediction E-G pairs
+plotOverlaps <- function(df, cell_type = "combined"){
+  
+  # extract data for the provided cell type
+  df_ct <- getCellTypeData(df, cell_type = cell_type)
+  
+  # count number of total CRISPR E-G pairs and overlapping pairs per predictor
+  n_pairs <- df_ct %>% 
+    group_by(pred_uid, pred_name_long) %>% 
+    summarize(`Overlaps predictions` = sum(Prediction == 1),
+              `Not in predictions` = sum(Prediction == 0),
+              .groups = "drop") %>% 
+    pivot_longer(cols = c(`Overlaps predictions`, `Not in predictions`), names_to = "Overlaps",
+                 values_to = "pairs")
+  
+  # plot number of CRISPR E-G pairs overlapping E-G pairs in predictions
+  ggplot(n_pairs, aes(x = pred_name_long, y = pairs, fill = Overlaps)) +
+    geom_bar(stat = "identity") +
+    labs(y = "E-G pairs", x = "Predictor", title = "CRISPR E-G pairs overlapping predictions") +
+    scale_fill_manual(values = c("Overlaps predictions" = "steelblue",
+                                 "Not in predictions" = "darkgray")) +
+    coord_flip() +
+    theme_bw()
+  
+}
+
 # compute PR curves for a given cell type (default: combined == all cells)
 calcPRCurves <- function(df, pred_config, pos_col, cell_type = "combined") {
   
@@ -38,7 +64,6 @@ calcPRCurves <- function(df, pred_config, pos_col, cell_type = "combined") {
   return(pr_df)
   
 }
-
 
 # create performance summary table for all predictors in a PR table
 makePRSummaryTable <- function(pr_df, pred_config, min_sensitivity = 0.7) {
@@ -128,27 +153,27 @@ predScatterPlots <- function(df, y_col, pred_names_col = "pred_uid", point_size 
   
 }
 
-# make plots showing scores for each predictor as a function of experimental outcome
+# make violin plots showing scores for each predictor as a function of experimental outcome
 plotPredictorsVsExperiment <- function(df, pos_col = "Regulated", pred_names_col = "pred_uid",
-                                       point_size = 2, text_size = 13, cell_type = "combined") {
+                                       text_size = 13, cell_type = "combined") {
   
   # get data for specified cell type
   df_ct <- getCellTypeData(df, cell_type = cell_type)
   
   # plot scores for each predictor as a function of experimental outcome
-  ggplot(df_ct, aes(x = get(pos_col), y = pred_value, color = get(pos_col))) +
+  ggplot(df_ct, aes(x = get(pos_col), y = pred_value, color = get(pos_col), fill = get(pos_col))) +
     facet_wrap(~get(pred_names_col), scales = "free") +
-    geom_jitter(size = point_size) +
-    geom_boxplot(fill = NA, outlier.shape = NA, color = "black") +
+    geom_violin() +
+    geom_boxplot(width = 0.1, outlier.shape = NA, color = "black", fill = "NA") +
     scale_color_manual(values = c("darkgray", "steelblue")) +
+    scale_fill_manual(values = c("darkgray", "steelblue")) +
     labs(title = "Predictors vs experimental outcome", x = "Experimental E-G pair",
-         y = "Predictor value") +
-    scale_y_log10() +
+         y = "Predictor value (sqrt)") +
+    scale_y_sqrt() +
     theme_bw() +
     theme(legend.position = "none", text = element_text(size = text_size))
   
 }
-
 
 # plot distance distributions for experimental positives and negatives
 plotDistanceDistribution <- function(df, dist = "baseline.distToTSS", pos_col = "Regulated",
@@ -160,17 +185,16 @@ plotDistanceDistribution <- function(df, dist = "baseline.distToTSS", pos_col = 
   # get data for distance and add label for faceting
   dist_data <- df_ct %>% 
     filter(pred_uid == dist) %>% 
-    mutate(label = if_else(get(pos_col) == TRUE, true = "Experimental E-G pairs", 
-                           false = "Negatives")) %>% 
+    mutate(label = if_else(get(pos_col) == TRUE, true = "Positives", false = "Negatives")) %>% 
+    mutate(label = factor(label, levels = c("Positives", "Negatives"))) %>% 
     mutate(dist_kb = pred_value / 1000)
   
   # plot distance distribution for all pairs in experimental data
   ggplot(dist_data, aes(x = dist_kb, fill = label)) +
     facet_wrap(~label, ncol = 1, scales = "free_y") +
-    geom_histogram(binwidth = 100) +
+    geom_histogram(binwidth = 10) +
     labs(x = "Distance (kb)") +
-    scale_fill_manual(values = c("Experimental E-G pairs" = "steelblue",
-                                 "Negatives" = "darkgray")) +
+    scale_fill_manual(values = c("Positives" = "steelblue", "Negatives" = "darkgray")) +
     theme_bw() +
     theme(legend.position = "none", text = element_text(size = text_size))
   
@@ -183,20 +207,170 @@ plotOverlappingFeatures <- function(df, feature_cols, cell_type = "combined") {
   df_ct <- getCellTypeData(df, cell_type = cell_type)
   
   # create table with unique enhancers and overlapping features
-  cre_features <- df_ct %>% 
-    mutate(cre_id = paste0(chrom, ":", chromStart, "-", chromEnd)) %>% 
-    select(c("cre_id", feature_cols)) %>% 
+  enh_features <- df_ct %>% 
+    mutate(enh_id = paste0(chrom, ":", chromStart, "-", chromEnd)) %>% 
+    select(enh_id, all_of(feature_cols)) %>% 
     distinct() %>% 
-    mutate(across(feature_cols, ~ .x * 1))
+    mutate(across(all_of(feature_cols), ~ .x * 1))
   
   # set new column names
-  colnames(cre_features) <- sub("overlaps_", "", colnames(cre_features))
+  colnames(enh_features) <- sub("enh_feature_", "", colnames(enh_features))
   
   # create upset plot with overlapping features
-  upset(cre_features, nsets = 10, order.by = "freq", number.angles = 30, point.size = 3.5,
+  upset(enh_features, nsets = 10, order.by = "freq", number.angles = 30, point.size = 3.5,
         line.size = 2, mainbar.y.label = "Enhancers overlapping features",
         sets.x.label = "Overlapping sites",
         text.scale = c(1.5, 1.5, 1.2, 1.2, 1.5, 1.5))
+  
+}
+
+## Make plots for subsets of the data based on gene or enhancer features ---------------------------
+
+# calculate and plot PR curves for a given subset
+makePRCurveSubset <- function(df, subset_col, pred_config, pos_col, min_sensitivity = 0.7,
+                              line_width = 1, point_size = 3, text_size = 15, nrow = 1,
+                              colors = NULL) {
+  
+  # split df into subsets based on provided column
+  df_split <- split(df, f = as.character(df[[subset_col]]))
+  
+  # compute PR curve
+  prc <- lapply(df_split, FUN = calcPRCurves, pred_config = pred_config, pos_col = pos_col)
+  
+  # calculate percentage of positives for all splits
+  pct_pos <- lapply(df_split, FUN = calcPctPos, pos_col = pos_col)
+  
+  # create plot titles based on feature name and number of pairs for that feature
+  feature_name <- sub(".+_feature_", "", subset_col)
+  pairs <- vapply(df_split, FUN = function(x) length(unique(x$name)), FUN.VALUE = integer(1))
+  titles <- paste0(feature_name, " = " , names(prc), " (", pairs, " pairs)")
+  
+  # plot PR curves
+  pr_plots <- mapply(FUN = makePRCurvePlot, pr_df = prc, pct_pos = pct_pos, plot_name = titles, 
+                     MoreArgs = list(pred_config = pred_config, min_sensitivity = min_sensitivity,
+                                     line_width = line_width, point_size = point_size,
+                                     text_size = text_size, colors = colors),
+                     SIMPLIFY = FALSE)
+  
+  # create title for this comparison
+  title <- ggdraw() + 
+    draw_label(feature_name, fontface = "bold", x = 0, hjust = 0, size = text_size * 1.5) +
+    theme(plot.margin = margin(0, 0, 0, 7)) # align title with left edge of first plot
+  
+  # combine into one plot
+  pr_plots_row <- plot_grid(plotlist = pr_plots, nrow = nrow)
+  plot_grid(title, pr_plots_row, ncol = 1, rel_heights = c(0.1, 1))
+  
+}
+
+# calculate and plot PR curves for several subset columns and arrange plots into one figure for one
+# cell type
+makePRCurveSubsets <- function(df, subset_cols, pred_config, pos_col, cell_type = "combined",
+                               min_sensitivity = 0.7, line_width = 1, point_size = 3,
+                               text_size = 15, nrow = 1, colors = NULL) {
+  
+  # return NULL if no subsets are available
+  if (length(subset_cols) == 0) {
+    return(NULL)
+  }
+  
+  # extract data for the provided cell type
+  df_ct <- getCellTypeData(df, cell_type = cell_type)
+  
+  # create PR curve plots for each subset
+  pr_plots <- lapply(subset_cols, FUN = makePRCurveSubset, df = df_ct,
+                     pred_config = pred_config, pos_col = pos_col,
+                     min_sensitivity = min_sensitivity, line_width = line_width,
+                     point_size = point_size, text_size = text_size, nrow = nrow, colors = colors)
+  
+  # create one figure with all plots
+  plot_grid(plotlist = pr_plots, nrow = length(subset_cols))
+  
+}
+
+# make violin plots showing scores for each predictor vs experimental outcome for a given subset
+plotPredVsExperimentSubset <- function(df, subset_col, pos_col, pred_names_col = "pred_uid",
+                                      text_size = 13) {
+  
+  # get feature name for title
+  feature_name <- sub(".+_feature_", "", subset_col)
+  
+  # plot scores for each predictor as a function of experimental outcome
+  ggplot(df, aes(x = get(pos_col), y = pred_value, color = get(pos_col), fill = get(pos_col))) +
+    facet_grid(get(pred_names_col) ~ get(subset_col), scales = "free") +
+    geom_violin() +
+    geom_boxplot(width = 0.1, outlier.shape = NA, color = "black", fill = "NA") +
+    scale_color_manual(values = c("darkgray", "steelblue")) +
+    scale_fill_manual(values = c("darkgray", "steelblue")) +
+    labs(title = feature_name, x = "Experimental E-G pair",
+         y = "Predictor value (sqrt)") +
+    scale_y_sqrt() +
+    theme_bw() +
+    theme(legend.position = "none", text = element_text(size = text_size))
+  
+}
+
+# make violin plots showing scores for each predictor vs experimental outcome for a given subset
+plotPredVsExperimentSubsets <- function(df, subset_cols, pos_col, cell_type = "combined",
+                                        pred_names_col = "pred_uid", text_size = 13) {
+  
+  # return NULL if no subsets are available
+  if (length(subset_cols) == 0) {
+    return(NULL)
+  }
+  
+  # extract data for the provided cell type
+  df_ct <- getCellTypeData(df, cell_type = cell_type)
+  
+  # create predictor vs experiment plots for each subset
+  pe_plots <- lapply(subset_cols, FUN = plotPredVsExperimentSubset, df = df_ct, pos_col = pos_col,
+                     pred_names_col = pred_names_col, text_size = text_size)
+  
+  # create one figure with all plots
+  plot_grid(plotlist = pe_plots, nrow = length(subset_cols))
+  
+}
+
+# make violin plots showing scores for each predictor vs experimental outcome for a given subset
+predScatterPlotsSubset <- function(df, subset_col, y_col, pred_names_col = "pred_uid",
+                                   point_size = 2, text_size = 13, alpha_value = 1) {
+  
+  # get feature name for title
+  feature_name <- sub(".+_feature_", "", subset_col)
+  
+  # plot each predictor against effect size for the given subset
+  ggplot(df, aes(x = pred_value, y = get(y_col), color = scatterplot_color)) +
+    facet_grid(get(subset_col) ~ get(pred_names_col), scales = "free") +
+    geom_point(size = point_size, alpha = alpha_value) +
+    scale_color_manual(values = c("Activating" = "red", "Repressive" = "blue", 
+                                  "Not Significant" = "gray")) +
+    labs(title = feature_name, x = "Predictor value", y = y_col, color = "") +
+    scale_x_continuous(labels = scales::scientific) +
+    theme_bw() +
+    theme(legend.position = "bottom", text = element_text(size = text_size))
+  
+}
+
+# make violin plots showing scores for each predictor vs experimental outcome for a given subset
+predScatterPlotsSubsets <- function(df, subset_cols, y_col, cell_type = "combined",
+                                    pred_names_col = "pred_uid", point_size = 2, text_size = 13,
+                                    alpha_value = 1) {
+  
+  # return NULL if no subsets are available
+  if (length(subset_cols) == 0) {
+    return(NULL)
+  }
+  
+  # extract data for the provided cell type
+  df_ct <- getCellTypeData(df, cell_type = cell_type)
+  
+  # create predictor vs experiment scatter plots for each subset
+  sc_plots <- lapply(subset_cols, FUN = predScatterPlotsSubset, df = df_ct, y_col = y_col,
+                     pred_names_col = pred_names_col, point_size = point_size,
+                     text_size = text_size, alpha_value = alpha_value)
+  
+  # create one figure with all plots
+  plot_grid(plotlist = sc_plots, nrow = length(subset_cols))
   
 }
  
@@ -270,17 +444,17 @@ calcPerfSummaryOnePred <- function(pr_df, pred_config, min_sensitivity) {
   
   # compute AUC and maximum F1
   # the head() calls here remove the last element of the vector. 
-  # The point is that performance objects produced by ROCR always include a Recall=100% point even
+  # The point is that performance objects produced by ROCR always include a Recall = 100% point even
   # if the predictor cannot achieve a recall of 100%. This results in a straight line ending at
   # (1,0) on the PR curve. This should not be included in the AUC computation.
   auprc <- pr_df %>% 
     head(-1) %>% 
     summarize(AUPRC = computeAUC(x_vals = recall, y_vals = precision),
-              max_F1 = max(F1, na.rm = TRUE))
+              max_F1 = computeMaxF1(.))
   
   # compute performance at min sensitivity
   perf_min_sens <- computePerfGivenSensitivity(pr_df, min_sensitivity = min_sensitivity)
-  
+
   # get cutoff specified in pred_config for given predictor
   cutoff <- pred_config %>% 
     filter(pred_uid == predictor) %>% 
@@ -293,14 +467,37 @@ calcPerfSummaryOnePred <- function(pr_df, pred_config, min_sensitivity) {
   # create output table
   perf_summary <- data.frame(pred_uid = predictor, auprc, perf_min_sens, perf_alpha_cutoff)
   
+  # if AUC couldn't be computed, set all performance metrics to NA, since this indicates a PRC
+  # without any real points except the starting and end points added by the ROCR package
+  # TODO: find better solution for this
+  if (all(is.na(auprc))) {
+    perf_cols <- !colnames(perf_summary) %in% c("pred_uid", "min_sensitivity", "alpha_cutoff")
+    perf_summary[, perf_cols] <- NA_real_ 
+  }
+  
   return(perf_summary)
   
 }
 
-# compute AUC
+# try to compute AUC
 computeAUC <- function(x_vals, y_vals) {
   good.idx <- which(!is.na(x_vals) & !is.na(y_vals))
-  return(trapz(x_vals[good.idx], y_vals[good.idx]))
+  if (length(good.idx) > 0) {
+    auc <- trapz(x_vals[good.idx], y_vals[good.idx])
+  } else {
+    auc <- NA_real_
+  }
+  return(auc)
+}
+
+# try to compute maximum F1 from a prc table
+computeMaxF1 <- function(pr_df) {
+  if (any(!is.na(pr_df$F1))) {
+    maxF1 <- max(pr_df$F1, na.rm = TRUE)
+  } else {
+    maxF1 <- NA_real_
+  }
+  return(maxF1)
 }
 
 # compute performance given a minimum sensitivity (recall)
@@ -471,3 +668,26 @@ get_alpha_min <- function(merged, predictor, inverse = FALSE) {
     summarize(alpha = if_else(inverse == TRUE, max(pred_value), min(pred_value))) %>% 
     pull(alpha)
 }
+
+## DEPRECATED ======================================================================================
+
+# # make jitter plots showing scores for each predictor as a function of experimental outcome
+# plotPredictorsVsExperiment <- function(df, pos_col = "Regulated", pred_names_col = "pred_uid",
+#                                        point_size = 2, text_size = 13, cell_type = "combined") {
+#   
+#   # get data for specified cell type
+#   df_ct <- getCellTypeData(df, cell_type = cell_type)
+#   
+#   # plot scores for each predictor as a function of experimental outcome
+#   ggplot(df_ct, aes(x = get(pos_col), y = pred_value, color = get(pos_col))) +
+#     facet_wrap(~get(pred_names_col), scales = "free") +
+#     geom_jitter(size = point_size) +
+#     geom_boxplot(fill = NA, outlier.shape = NA, color = "black") +
+#     scale_color_manual(values = c("darkgray", "steelblue")) +
+#     labs(title = "Predictors vs experimental outcome", x = "Experimental E-G pair",
+#          y = "Predictor value") +
+#     scale_y_log10() +
+#     theme_bw() +
+#     theme(legend.position = "none", text = element_text(size = text_size))
+#   
+# }

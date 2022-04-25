@@ -1,6 +1,8 @@
 ## Merge predictions with experimental data for downstream comparisons of predictions with CRISPR
 ## CRE perturbation data
 
+# save.image("merge.rda")
+# stop()
 
 # open log file to collect all messages, warnings and errors
 log <- file(snakemake@log[[1]], open = "wt")
@@ -49,10 +51,12 @@ if (!is.null(ct_map_files)) {
   cell_mappings <- list()
 }
 
-# QC input data
-qcPredConfig(pred_config)
+# QC pred_config file
+qcPredConfig(pred_config, pred_list = pred_list)
+
+# QC experimental data and predictors
 qcExperiment(expt, experimentalPositiveColumn = "Significant")
-qcPredictions(pred_list, pred_config)
+qcPredictions(pred_list, pred_config, one_tss = FALSE)
 
 
 ## process input data ------------------------------------------------------------------------------

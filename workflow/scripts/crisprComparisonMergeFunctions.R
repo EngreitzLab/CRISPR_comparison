@@ -1,6 +1,7 @@
 library(data.table)
 library(GenomicRanges)
 
+# load a fiel containing a prediction set and report number of E-G pairs
 loadPredictions <- function(pred_file, show_progress = FALSE) {
   message("Reading predictions in: ", pred_file)
   pred <- fread(pred_file, showProgress = show_progress)
@@ -8,6 +9,7 @@ loadPredictions <- function(pred_file, show_progress = FALSE) {
   return(pred)
 }
 
+# check format of an experiment dataset and report any issues
 qcExperiment <- function(expt, experimentalPositiveColumn) {
   
   message("Running QC on experimental data")
@@ -45,18 +47,20 @@ qcExperiment <- function(expt, experimentalPositiveColumn) {
   message("Done")
 }
 
-qcPredictions <- function(pred_list, pred_config)  {
+# check format of a list of predictions and report any issues
+qcPredictions <- function(pred_list, pred_config, one_tss = TRUE)  {
   
   message("Running QC on predictions")
   
+  # make sure that minimum required columns are present
+  base_cols <- c("chr", "start", "end", "TargetGene", "CellType")
+  invisible(lapply(names(pred_list), FUN = check_min_cols, pred_list = pred_list,
+                   pred_config = pred_config, base_cols = base_cols))
+  
   # make sure all column names are valid
   illegal_cols <- c("experiment", "MappedCellType", "PredCellType")
-  invisible(lapply(pred_list, FUN = function(pred) {
-    wrong_pred_cols <- intersect(colnames(pred), illegal_cols)
-    if (length(wrong_pred_cols) > 0) {
-      stop("Illegal columns in predictions: ", paste(wrong_pred_cols, collapse = ", "), call. = FALSE)
-    }
-  }))
+  invisible(lapply(names(pred_list), FUN = check_illegal_cols, pred_list = pred_list,
+                   illegal_cols = illegal_cols))
   
   # check that pred_col formats are ok
   invisible(lapply(names(pred_list), FUN = function(pred_name) { 
@@ -66,33 +70,29 @@ qcPredictions <- function(pred_list, pred_config)  {
                      MoreArgs = list(df = pred)))
     }))
   
+  # check that predictions contain only one TSS per gene
+  if (one_tss == TRUE) {
+    invisible(lapply(names(pred_list), FUN = check_one_tss, pred_list = pred_list))
+  }
+  
   message("Done")
   
 }
 
-# check if a given predictor column has the correct format
-check_pred_col <- function(df, pred_col, boolean) {
-  pred_values <- df[[pred_col]]
-  if (boolean == TRUE) {
-    if (any(!unique(as.numeric(pred_values)) %in% c(0, 1))) {
-      stop("Incorrect format for boolean predictor. Must be either 1/0 or TRUE/FALSE",
-           call. = FALSE)
-    }
-  } else {
-    if (!is.numeric(pred_values)) {
-      stop("Continuous predictors must have numeric values.", call. = FALSE)
-    }
-  }
-}
-
-# check for valid pred_config.txt input
-qcPredConfig <- function(pred_config) {
+# check for valid pred_config file
+qcPredConfig <- function(pred_config, pred_list) {
   
   message("Running QC on pred_config file")
   
   # check that there is no baseline prediction set. baseline is used internally
   if ("baseline" %in% pred_config$pred_id) {
     stop("Prediction set called 'baseline' not allowed. Please rename.", call. = FALSE)
+  }
+  
+  # check that all predictors in pred_list are found in the pred_config file
+  missing_preds <- setdiff(names(pred_list), pred_config$pred_id)
+  if (length(missing_preds) > 0) {
+    stop("Not all predictors in prediction files are listed in pred_config!", call. = FALSE)
   }
   
   # check that pred_id and pred_col create a unique identifier
@@ -436,6 +436,56 @@ writeExptSummary <- function(df, summary_file) {
   write.table(df_summary, file = summary_file, sep = "\t", quote = FALSE, row.names = FALSE)
   
 }
+
+## HELPER FUNCTIONS ================================================================================
+
+# check input --------------------------------------------------------------------------------------
+
+# make sure that minimum required columns are present in a prediction set
+check_min_cols <- function(pred_list, pred_config, pred, base_cols) {
+  score_col <- pred_config[pred_config$pred_id == pred, ][["pred_col"]]  # get score cols for pred
+  missing_cols <- setdiff(c(base_cols, score_col), colnames(pred_list[[pred]]))
+  if (length(missing_cols) > 0) {
+    stop("Missing columns in predictions '", pred, "': ", paste(missing_cols, collapse = ", "), ".",
+         call. = FALSE)
+  }
+}
+
+# check if a prediction set contains illegal column names
+check_illegal_cols <- function(pred_list, pred, illegal_cols) {
+  df <- pred_list[[pred]]
+  wrong_pred_cols <- intersect(colnames(df), illegal_cols)
+  if (length(wrong_pred_cols) > 0) {
+    stop("Illegal columns in predictions '", pred, "': ", paste(wrong_pred_cols, collapse = ", "),
+         ".", call. = FALSE)
+  }
+}
+
+# check if a given predictor column has the correct format
+check_pred_col <- function(df, pred_col, boolean) {
+  pred_values <- df[[pred_col]]
+  if (boolean == TRUE) {
+    if (any(!unique(as.numeric(pred_values)) %in% c(0, 1))) {
+      stop("Incorrect format for boolean predictor. Must be either 1/0 or TRUE/FALSE.",
+           call. = FALSE)
+    }
+  } else {
+    if (!is.numeric(pred_values)) {
+      stop("Continuous predictors must have numeric values.", call. = FALSE)
+    }
+  }
+}
+
+# check that a prediction set only uses one TSS per gene, i.e. each enhancer-gene pair occurs once
+check_one_tss <- function(pred_list, pred) {
+  df <- pred_list[[pred]]
+  total_pairs <- nrow(df)
+  unique_pairs <- nrow(unique(df[, c("chr", "start", "end", "TargetGene")]))
+  if (unique_pairs < total_pairs) {
+    stop("Predictions '", pred, "' uses more than one TSS per gene.", call. = FALSE)
+  }
+}
+
 
 ## Deprecated import functions =====================================================================
 

@@ -8,4 +8,5 @@ include: "rules/crispr_comparison.smk"
 # perform all comparisons listed in config.yml
 rule all:
   input:
-    expand("results/{comparison}/crispr_comparison.html", comparison = config["comparisons"])
+    expand("results/{comparison}/{comparison}_crispr_comparison.html",
+    comparison = config["comparisons"])
