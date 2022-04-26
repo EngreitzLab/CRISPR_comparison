@@ -1,17 +1,18 @@
 
 # comparisons to be performed by the pipeline, copy-paste example for a template
 comparisons:
-  example:
+  Ramil:
     pred:
-      K562HiC: "resources/example/K562_ABC_K562HiC_chrx.txt.gz"
-      AvgHiC: "resources/example/K562_ABC_AvgHiC_chrx.txt.gz"
-    expt:
-      "resources/example/experimental_data_chrX.txt.gz"
-    gene_universe: "resources/example/RefSeqCurated.170308.bed.CollapsedGeneBounds.sorted.chrX.bed.gz"
-    tss_universe: "resources/example/RefSeqCurated.170308.bed.CollapsedGeneBounds.TSS500bp.sorted.chrX.bed.gz"
-    pred_config: "resources/example/pred_config.txt"
-    cell_type_mapping: 
-      K562HiC: "resources/example/ABC_cell_type_mapping.txt"
-      AvgHiC: "resources/example/ABC_cell_type_mapping.txt"
-    annotation_features: Null
+      ABC: "/path/to/abc-predictions"
+      Ramil: "/path/to/ramil-predictions"
+    expt: "/path/to/crispr/data"
+    gene_universe: "resources/annotations_GRCh38/RefSeqCurated.170308.bed.CollapsedGeneBounds.hg38.bed"
+    tss_universe: "resources/annotations_GRCh38/RefSeqCurated.170308.bed.CollapsedGeneBounds.hg38.TSS500bp.bed"      
+    pred_config: "resources/distal_regulation_comparison/pred_config.txt"
+    cell_type_mapping:
+      ABC: "resources/distal_regulation_comparison/ABC_cell_type_mappings.txt"
+    dist_bins_kb: [0, 20, 50, 100, 2500]
+    gene_features: Null
+    enh_features: Null
+    enh_assays: Null
 

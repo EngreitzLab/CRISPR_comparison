@@ -1,7 +1,7 @@
 library(data.table)
 library(GenomicRanges)
 
-# load a fiel containing a prediction set and report number of E-G pairs
+# load a file containing a prediction set and report number of E-G pairs
 loadPredictions <- function(pred_file, show_progress = FALSE) {
   message("Reading predictions in: ", pred_file)
   pred <- fread(pred_file, showProgress = show_progress)

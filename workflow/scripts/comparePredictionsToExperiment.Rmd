@@ -11,8 +11,8 @@ output:
 
 ```{r setupDocument, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
-save.image("comp.rda")
-stop()
+# save.image("comp.rda")
+# stop()
 ```
 
 ```{r attachPackages, message=FALSE, warning=FALSE}
@@ -125,6 +125,14 @@ names(cell_types) <- cell_types
 
 # count and plot number of CRISPR E-G pairs overlapping prediction E-G pairs
 overlap_plots <- lapply(cell_types, FUN = plotOverlaps, df = merged)
+
+# save plots to file
+plotdir <- file.path(dirname(snakemake@output[[1]]), "plots")
+dir.create(plotdir, recursive = TRUE, showWarnings = FALSE)
+ovl_plot_files <- file.path(plotdir, paste0(names(overlap_plots), "_expt_pred_overlaps.pdf"))
+for (i in seq_along(overlap_plots)) {
+  ggsave(overlap_plots[[i]], filename = ovl_plot_files[[i]], height = 3.5, width = 7, device = "pdf")
+}
 ```
 
 ```{r results='asis', fig.cap=cap, fig.height=3.5, fig.width=7, warning=FALSE}
@@ -179,8 +187,6 @@ pr_plots <- mapply(FUN = makePRCurvePlot, pr_df = pr, pct_pos = pct_pos,
                    SIMPLIFY = FALSE)
 
 # save plots to file
-plotdir <- file.path(dirname(snakemake@output[[1]]), "plots")
-dir.create(plotdir, recursive = TRUE, showWarnings = FALSE)
 pr_plot_files <- file.path(plotdir, paste0(names(pr_plots), "_prc_full_expt_data.pdf"))
 for (i in seq_along(pr_plots)) {
   ggsave(pr_plots[[i]], filename = pr_plot_files[[i]], height = 4.5, width = 7.5, device = "pdf")
@@ -247,7 +253,7 @@ merged_quant <- filter(merged, !pred_uid %in% bool_preds)
 
 # create plots showing predictor values as a function of experimental outcome
 pred_plots <- lapply(cell_types, FUN = plotPredictorsVsExperiment, df = merged_quant,
-                     pos_col = pos_col, pred_names_col = "pred_name_long", text_size = 13)
+                     pos_col = pos_col, pred_names_col = "pred_name_long", text_size = 13, ncol = 2)
 
 # calculate plot dimensions based on number of predictors
 pred_plots_dims <- get_row_col(pred_plots[[1]])
@@ -291,11 +297,11 @@ merged_quant <- labelPairs(merged_quant, sig_col = "Significant")
 # make scatter plots
 es_scatters <- lapply(cell_types, FUN = predScatterPlots, df = merged_quant, y_col = "EffectSize",
                       point_size = 2, text_size = 13, alpha_value = 1,
-                      pred_names_col = "pred_name_long")
+                      pred_names_col = "pred_name_long", ncol = 2)
 
 # calculate plot dimensions based on number of predictors
 es_scatter_dims <- get_row_col(es_scatters[[1]])
-plot_height <- ceiling(es_scatter_dims[1] * 3.5)
+plot_height <- ceiling(es_scatter_dims[1] * 2.5)
 plot_width  <- ceiling(es_scatter_dims[2] * 3.5)
 
 # save scatter plots to files
@@ -325,7 +331,7 @@ cap <- paste("Predictors versus experimental effect size. Effect size is taken f
 Enhancer-gene pairs are binned based on their distance to TSS and predictor performance is assessed
 for each bin.
 
-```{r distanceBins, fig.width=5, fig.height=3}
+```{r distanceBins, fig.width=4.5, fig.height=3}
 # set distance bins to 4 equal sized bins if no manual boundaries are provided
 if (is.null(snakemake@params$dist_bins_kb)) {
   dist_breaks <- 4
@@ -341,10 +347,11 @@ dist_bins <- merged_quant %>%
   select(name, `distToTSS (bins)`)
 
 # add distance bins to merged data
-merged_quant <- left_join(merged_quant, dist_bins, by = "name")
+merged_bins <- left_join(merged_quant, dist_bins, by = "name") %>% 
+  filter(!is.na(`distToTSS (bins)`))
 
 # get unique experimentally tested pairs
-crispr_pairs <- distinct(select(merged_quant, name, `distToTSS (bins)`, all_of(pos_col)))
+crispr_pairs <- distinct(select(merged_bins, name, `distToTSS (bins)`, all_of(pos_col)))
 
 # plot number of pairs per distance bin
 ggplot(crispr_pairs, aes(x = `distToTSS (bins)`, fill = get(pos_col))) +
@@ -353,6 +360,9 @@ ggplot(crispr_pairs, aes(x = `distToTSS (bins)`, fill = get(pos_col))) +
        title = "CRISPR E-G pairs vs. distance", fill = pos_col) +
   scale_fill_manual(values = c("FALSE" = "darkgray", "TRUE" = "steelblue")) +
   theme_bw()
+
+# save plot to file
+ggsave(filename = file.path(plotdir, "eg_pairs_vs_distance.pdf"), width = 4.5, height = 3)
 ```
 
 ```{r filterBins}
@@ -368,7 +378,7 @@ invalid_bins <- crispr_pos_neg_pairs %>%
   pull(`distToTSS (bins)`)
 
 # remove these from merged data, since performance can't be assessed for these
-merged_bins_filt <- filter(merged_quant, !`distToTSS (bins)` %in% invalid_bins)
+merged_bins_filt <- filter(merged_bins, !`distToTSS (bins)` %in% invalid_bins)
 
 # report if any bins are removed
 if (length(invalid_bins) > 0) {
@@ -393,6 +403,12 @@ dist_prc_plots <- lapply(cell_types, FUN = makePRCurveSubsets, df = merged_bins_
 # calculate plot dimensions based on number of features
 plot_height <- nrow * 3.5
 plot_width <- ceiling(n_bins / nrow) * 5
+
+# save distance prc plots to files
+for (n in names(dist_prc_plots)) {
+  ggsave(dist_prc_plots[[n]], filename = file.path(plotdir, paste0(n, "_distance_binned_prc.pdf")),
+         height = plot_height, width = plot_width, device = "pdf")
+}
 ```
 
 ```{r, results='asis', fig.cap=cap, fig.height=plot_height, fig.width=plot_width}

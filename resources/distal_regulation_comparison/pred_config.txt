@@ -1,0 +1,11 @@
+pred_id pred_col  boolean alpha aggregate_function  fill_value  inverse_predictor pred_name_long  color
+ABC powerlaw.Score FALSE 0.015 sum 0 FALSE  "ABC (powerlaw)" "#4E79A7"
+EpiMap  Score FALSE 0.7142857 max 0 FALSE "EpiMap"  "#E15759"
+ChromHMM  Score FALSE NA max 0 FALSE "ChromHMM"  "#59A14F"
+Ramil Score FALSE 0.05 sum 0 FALSE  "Ramil" "darkorchid3"
+Enformer  Score FALSE NA  sum 0 FALSE "Enformer (CRISPR)" "deeppink1"
+GraphReg  Score FALSE NA  max 0 FALSE "GraphReg (raw)" "seagreen"
+GraphReg  Score.normalized FALSE NA  max 0 FALSE "GraphReg (norm)" "seagreen2"
+#GraphReg  Score.normalized.sum FALSE NA  max 0 FALSE "GraphReg (normSum)" "cyan"
+DNase Score FALSE NA  sum 0 FALSE "DNase reads * 1/distance"  "#B07AA1"
+H3K27ac Score FALSE NA  sum 0 FALSE "H3k27ac reads * 1/distance"  "#76B7B2"
