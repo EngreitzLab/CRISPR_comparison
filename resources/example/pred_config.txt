@@ -1,3 +1,2 @@
 pred_id pred_col  boolean alpha aggregate_function  fill_value  inverse_predictor pred_name_long  color
-K562HiC Score FALSE 0.015 sum 0 FALSE "ABC score, K562 HiC data"  "#035594"
-AvgHiC  Score FALSE 0.015  sum 0 FALSE "ABC score, averaged HiC data" "#a853a5"
+ABC powerlaw.Score  FALSE  0.02 sum 0 FALSE "ABC (powerlaw)"  "steelblue"

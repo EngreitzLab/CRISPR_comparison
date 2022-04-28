@@ -36,7 +36,7 @@ calcPRCurves <- function(df, pred_config, pos_col, cell_type = "combined") {
   
   # extract data for the provided cell type
   df_ct <- getCellTypeData(df, cell_type = cell_type)
-
+  
   # split into list for lapply
   df_ct_split <- split(df_ct, f = df_ct$pred_uid)
   
@@ -77,7 +77,7 @@ makePRSummaryTable <- function(pr_df, pred_config, min_sensitivity = 0.7) {
     group_split(pred_uid) %>% 
     lapply(calcPerfSummaryOnePred, pred_config = pred_config, min_sensitivity = min_sensitivity) %>% 
     bind_rows()
-    
+  
   # add predictor information from pred_config
   perf_summary <- pred_config %>% 
     select(pred_uid, pred_id, pred_col, inverse_predictor, pred_name_long) %>% 
@@ -135,14 +135,15 @@ makePRCurvePlot <- function(pr_df, pred_config, pct_pos, min_sensitivity = 0.7,
 
 # make scatter plots of one column (y) against all predictors (x) (default: combined == all cells)
 predScatterPlots <- function(df, y_col, pred_names_col = "pred_uid", point_size = 2,
-                             text_size = 13, alpha_value = 1, cell_type = "combined") {
+                             text_size = 13, alpha_value = 1, cell_type = "combined", ncol = NULL,
+                             nrow = NULL) {
   
   # get data for specified cell type
   df_ct <- getCellTypeData(df, cell_type = cell_type)
   
   # plot each predictor against effect size
   ggplot(df_ct, aes(x = pred_value, y = get(y_col), color = scatterplot_color)) +
-    facet_wrap(~get(pred_names_col), scales = "free") +
+    facet_wrap(~get(pred_names_col), scales = "free", ncol = ncol, nrow = nrow) +
     geom_point(size = point_size, alpha = alpha_value) +
     scale_color_manual(values = c("Activating" = "red", "Repressive" = "blue", 
                                   "Not Significant" = "gray")) +
@@ -155,14 +156,15 @@ predScatterPlots <- function(df, y_col, pred_names_col = "pred_uid", point_size 
 
 # make violin plots showing scores for each predictor as a function of experimental outcome
 plotPredictorsVsExperiment <- function(df, pos_col = "Regulated", pred_names_col = "pred_uid",
-                                       text_size = 13, cell_type = "combined") {
+                                       text_size = 13, cell_type = "combined", ncol = NULL,
+                                       nrow = NULL) {
   
   # get data for specified cell type
   df_ct <- getCellTypeData(df, cell_type = cell_type)
   
   # plot scores for each predictor as a function of experimental outcome
   ggplot(df_ct, aes(x = get(pos_col), y = pred_value, color = get(pos_col), fill = get(pos_col))) +
-    facet_wrap(~get(pred_names_col), scales = "free") +
+    facet_wrap(~get(pred_names_col), scales = "free", ncol = ncol, nrow = nrow) +
     geom_violin() +
     geom_boxplot(width = 0.1, outlier.shape = NA, color = "black", fill = "NA") +
     scale_color_manual(values = c("darkgray", "steelblue")) +
@@ -232,7 +234,7 @@ makePRCurveSubset <- function(df, subset_col, pred_config, pos_col, min_sensitiv
                               colors = NULL) {
   
   # split df into subsets based on provided column
-  df_split <- split(df, f = as.character(df[[subset_col]]))
+  df_split <- split(df, f = df[[subset_col]])
   
   # compute PR curve
   prc <- lapply(df_split, FUN = calcPRCurves, pred_config = pred_config, pos_col = pos_col)
@@ -290,7 +292,7 @@ makePRCurveSubsets <- function(df, subset_cols, pred_config, pos_col, cell_type 
 
 # make violin plots showing scores for each predictor vs experimental outcome for a given subset
 plotPredVsExperimentSubset <- function(df, subset_col, pos_col, pred_names_col = "pred_uid",
-                                      text_size = 13) {
+                                       text_size = 13) {
   
   # get feature name for title
   feature_name <- sub(".+_feature_", "", subset_col)
@@ -373,7 +375,7 @@ predScatterPlotsSubsets <- function(df, subset_cols, y_col, cell_type = "combine
   plot_grid(plotlist = sc_plots, nrow = length(subset_cols))
   
 }
- 
+
 ## HELPER FUNCTIONS ================================================================================
 
 # get data for a specified cell type or all if cell_type == "combined"
@@ -395,8 +397,8 @@ labelPairs <- function(df, sig_col = "Significant") {
                                       no = ifelse(EffectSize > 0,
                                                   yes = "Repressive",
                                                   no  = "Activating")
-                                      )
                                )
+  )
   
   return(df)
   
@@ -404,7 +406,7 @@ labelPairs <- function(df, sig_col = "Significant") {
 
 # convert a list of ROCR performance objects into a table and calculate F1 metric
 pr2df <- function(pr, calc_f1 = TRUE) {
-
+  
   # function to convert one performance object to a table
   convert_pr2df <- function(this_pr) {
     df <- as.data.frame(list(
@@ -425,7 +427,7 @@ pr2df <- function(pr, calc_f1 = TRUE) {
   if (calc_f1 == TRUE) {
     pr_df$F1 <- with(pr_df, 2 / ((1 / precision) + (1 / recall)))
   }
-           
+  
   return(pr_df)
   
 }
@@ -454,7 +456,7 @@ calcPerfSummaryOnePred <- function(pr_df, pred_config, min_sensitivity) {
   
   # compute performance at min sensitivity
   perf_min_sens <- computePerfGivenSensitivity(pr_df, min_sensitivity = min_sensitivity)
-
+  
   # get cutoff specified in pred_config for given predictor
   cutoff <- pred_config %>% 
     filter(pred_uid == predictor) %>% 
@@ -610,7 +612,7 @@ calcPctPos <- function(df, pos_col, cell_type = "combined") {
   
   # compute percentage of positives
   mean(df_ct[[pos_col]])
-
+  
 }
 
 # get precision at a specific sensitivity (recall)

@@ -1,7 +1,7 @@
 library(data.table)
 library(GenomicRanges)
 
-# load a fiel containing a prediction set and report number of E-G pairs
+# load a file containing a prediction set and report number of E-G pairs
 loadPredictions <- function(pred_file, show_progress = FALSE) {
   message("Reading predictions in: ", pred_file)
   pred <- fread(pred_file, showProgress = show_progress)
@@ -34,7 +34,7 @@ qcExperiment <- function(expt, experimentalPositiveColumn) {
   #   print("Error: The experimental data column must contain exactly two distinct values: TRUE and FALSE")
   #   stop()
   # }
-
+  
   #check to make sure regulated column contains TRUE/FALSE
   reg.vals <- sort(unique(expt[, get(experimentalPositiveColumn)]))
   if (!(all(reg.vals %in% c(FALSE, TRUE)) | all(reg.vals %in% c(0, 1)))) {
@@ -68,7 +68,7 @@ qcPredictions <- function(pred_list, pred_config, one_tss = TRUE)  {
     conf <- pred_config[pred_config$pred_id == pred_name, ]
     invisible(mapply(FUN = check_pred_col, pred_col = conf$pred_col, boolean = conf$boolean,
                      MoreArgs = list(df = pred)))
-    }))
+  }))
   
   # check that predictions contain only one TSS per gene
   if (one_tss == TRUE) {
@@ -108,7 +108,7 @@ qcPredConfig <- function(pred_config, pred_list) {
     tryCatch(expr = is.matrix(col2rgb(col)),
              error = function(err) return(FALSE))
   }, FUN.VALUE = logical(1))
-
+  
   # raise error if invalid color specification was found
   invalid_colors <- names(valid_colors[valid_colors == FALSE])
   if (length(invalid_colors > 0)) {
@@ -160,7 +160,7 @@ map_cell_type <- function(pred, ct_map) {
     pred_ct <- cbind(pred, ExperimentCellType = pred$CellType)
     
   } else {
-  
+    
     # rename columns in ct_map
     colnames(ct_map)[colnames(ct_map) == "experiment"] <- "ExperimentCellType"
     
@@ -172,7 +172,7 @@ map_cell_type <- function(pred, ct_map) {
     to_map <- !is.na(pred_ct[["ExperimentCellType"]])
     map_values <- pred_ct[to_map, ][["ExperimentCellType"]]
     pred_ct[to_map, "CellType"] <- map_values
-  
+    
   }
   
   # rename original CellType column in output
@@ -180,7 +180,7 @@ map_cell_type <- function(pred, ct_map) {
   colnames(pred_ct)[colnames(pred_ct) == "CellType"] <- "PredictionCellType"
   
   return(pred_ct)
-
+  
 }
 
 # check if which genes in experimental also occur in predictions
@@ -209,8 +209,8 @@ combineAllExptPred <- function(expt, pred_list, config, outdir) {
     prediction_sets,
     function(p) {
       combineSingleExptPred(expt = expt, pred = pred_list[[p]], pred_name = p,  config = config,
-                              outdir = outdir)
-      })
+                            outdir = outdir)
+    })
   
   # combine merged data into one table
   output <- rbindlist(merged_list, idcol = "pred_id")
@@ -221,7 +221,7 @@ combineAllExptPred <- function(expt, pred_list, config, outdir) {
   output <- output[, output_col_order, with = FALSE]
   
   return(output)
-
+  
 }
 
 # merge predictions with experimental data
@@ -244,7 +244,7 @@ combineSingleExptPred <- function(expt, pred, pred_name, config, outdir) {
     warning("Following predictor(s) specified in config file not found for ", pred_name, ": ",
             paste(missing_pred, collapse = ", "), call. = FALSE)
   }
-
+  
   # create GenomicRanges for CRE-G links for both experimental data and predictions. this applies a
   # trick with using the seqnames to restrict overlaps to E-G pairs involving the same genes and in
   # the same cell type
@@ -259,14 +259,14 @@ combineSingleExptPred <- function(expt, pred, pred_name, config, outdir) {
   seqlevels_all_pairs <- as.character(unique(c(seqnames(expt_gr), seqnames(pred_gr))))
   seqlevels(expt_gr) <- seqlevels_all_pairs
   seqlevels(pred_gr) <- seqlevels_all_pairs
- 
+  
   # find overlaps between predictions and experimental data
   ovl <- findOverlaps(expt_gr, pred_gr)
   
   # merge predictions with experimental data
   pred_merge_cols <- c("PredictionCellType", config_filt$pred_col)  # columns in predictions to add
   merged <- cbind(expt[queryHits(ovl)], pred[subjectHits(ovl), pred_merge_cols, with = FALSE])
-
+  
   # Step 2: aggregating pairs with multiple overlaps -----------------------------------------------
   
   # sometimes perturbed elements will overlap multiple predicted elements (eg in the case of a large
@@ -295,8 +295,8 @@ combineSingleExptPred <- function(expt, pred, pred_name, config, outdir) {
     x = expt_missing_preds[, -c("chrTSS", "startTSS", "endTSS")],
     file = file.path(expt_missing_pred_dir, paste0(pred_name, "_expt_missing_predictions.txt")),
     sep = "\t", quote = FALSE, row.names = FALSE
-    )
-
+  )
+  
   # fill in missing values
   expt_missing_preds$PredictionCellType <- NA_character_
   expt_missing_preds <- fillMissingPredictions(expt_missing_preds, config = config_filt,
@@ -325,7 +325,7 @@ combineSingleExptPred <- function(expt, pred, pred_name, config, outdir) {
   # convert to long format to generate output
   output <- melt(merged, measure.vars =  config_filt$pred_col, variable.name = "pred_col",
                  value.name = "pred_value")
-
+  
   # sort output according to genomic coordinates of enhancers and target gene
   sortcols <- c("chrom", "chromStart", "chromEnd", "measuredGeneSymbol")
   setorderv(output, sortcols)
@@ -339,9 +339,9 @@ collapseEnhancersOverlappingMultiplePredictions <- function(df, config, agg_cols
   
   # summarize columns as defined in config
   all_list <- mapply(FUN = function(pred_col, agg_func) {
-      agg_func <- get(agg_func)  # get function from string
-      df[, setNames(.(agg_func(get(pred_col))), pred_col), by = agg_cols]
-    }, pred_col = config$pred_col, agg_func = config$aggregate_function, SIMPLIFY = FALSE)
+    agg_func <- get(agg_func)  # get function from string
+    df[, setNames(.(agg_func(get(pred_col))), pred_col), by = agg_cols]
+  }, pred_col = config$pred_col, agg_func = config$aggregate_function, SIMPLIFY = FALSE)
   
   # special handling for aggregating the class column
   class_agg <- function(x) {
@@ -359,7 +359,7 @@ collapseEnhancersOverlappingMultiplePredictions <- function(df, config, agg_cols
       return("UNKNOWN")
     }
   }
-
+  
   # TODO: implement if class from predictions is added during merging
   #if ("class" %in% colnames(df)) {
   #  class_temp <- aggregate(df$class, by = list_for_agg, FUN = class_agg)
