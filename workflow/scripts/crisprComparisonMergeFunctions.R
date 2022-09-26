@@ -1,5 +1,8 @@
+
+# requried packages for functions in this file
 library(data.table)
 library(GenomicRanges)
+library(dplyr)
 
 # load a file containing a prediction set and report number of E-G pairs
 loadPredictions <- function(pred_file, show_progress = FALSE) {
@@ -10,47 +13,58 @@ loadPredictions <- function(pred_file, show_progress = FALSE) {
 }
 
 # check format of an experiment dataset and report any issues
-qcExperiment <- function(expt, experimentalPositiveColumn) {
+qcExperiment <- function(expt, pos_col, remove_na_pos = FALSE) {
   
-  message("Running QC on experimental data")
+  message("Running QC on experimental data:")
   
   # make sure that all column names are valid
   illegal_cols <- c("ExperimentCellType")
-  wrong_expt_cols <- intersect(colnames(expt), illegal_cols)
-  if (length(wrong_expt_cols) > 0) {
-    stop("Illegal columns in experiment: ", paste(wrong_expt_cols, collapse = ", "), call. = FALSE)
+  illegal_expt_cols <- intersect(colnames(expt), illegal_cols)
+  if (length(illegal_expt_cols) > 0) {
+    stop("Illegal columns in experiment: ", paste(illegal_expt_cols, collapse = ", "),
+         call. = FALSE)
   }
   
-  expt <- subset(expt, ValidConnection == "TRUE")
-  #Check for duplicate experiments
-  dupe <- any(duplicated(expt[, c("CellType", "measuredGeneSymbol", "chrom","chromStart","chromEnd")] ))
-  if (dupe) {
-    stop("The experimental data file contains duplicate experiments!", call. = FALSE)
+  # check for duplicate perturbation-gene pairs
+  expt_filt <- subset(expt, ValidConnection == "TRUE")
+  eg_id_cols <- c("CellType", "measuredGeneSymbol", "chrom", "chromStart", "chromEnd")
+  duplicates <- duplicated(expt_filt[, ..eg_id_cols])
+  if (any(duplicates)) {
+    stop("The experimental data file contains duplicate perturbation - gene pairs", call. = FALSE)
   }
   
-  #check to make sure regulated column contains TRUE/FALSE
-  # reg.vals <- sort(unique(expt[, get(experimentalPositiveColumn)]))
-  # if (!(identical(reg.vals, c(FALSE, TRUE)) | identical(reg.vals, c(0, 1)))) {
-  #   print("Error: The experimental data column must contain exactly two distinct values: TRUE and FALSE")
-  #   stop()
-  # }
+  # check to make sure regulated column contains TRUE/FALSE
+  pos_vals <- unique(expt[[pos_col]])
+  if (!all(pos_vals %in% c(FALSE, TRUE, NA))) {
+    stop("The experimental data column must contain TRUE/FALSE or 1/0", call. = FALSE)
+  }
   
-  #check to make sure regulated column contains TRUE/FALSE
-  reg.vals <- sort(unique(expt[, get(experimentalPositiveColumn)]))
-  if (!(all(reg.vals %in% c(FALSE, TRUE)) | all(reg.vals %in% c(0, 1)))) {
-    stop("The experimental data column must contain TRUE/FALSE", call. = FALSE)
+  # filter out any perturbation-gene pairs where pos_col is NA if specified
+  if (any(is.na(pos_vals)) & remove_na_pos == TRUE) {
+    na_pos_col <- is.na(expt[[pos_col]])
+    message("Filtering out ", sum(na_pos_col) , " case(s) with ", pos_col, " == NA")
+    expt <- expt[!na_pos_col, ]
   }
-  if (length(reg.vals) == 1) {
-    warning("All values are either positives or negatives. Plotting code will fail, but merged prediction/experimental table will be output.",
-            call. = FALSE)
+    
+  # raise warning if all perturbation-gene pairs have the same pos_col value
+  if (sum(!is.na(pos_vals)) == 1) {
+    warning("All values in ", pos_col, " are either positives or negative", call. = FALSE)
   }
+  
   message("Done")
+  return(expt)
+  
 }
 
 # check format of a list of predictions and report any issues
 qcPredictions <- function(pred_list, pred_config, one_tss = TRUE)  {
   
-  message("Running QC on predictions")
+  message("Running QC on predictions:")
+  
+  # check that there is no 'baseline' prediction set as this is used internally
+  if ("baseline" %in% names(pred_list)) {
+    stop("Prediction set called 'baseline' not allowed. Please rename.", call. = FALSE)
+  }
   
   # make sure that minimum required columns are present
   base_cols <- c("chr", "start", "end", "TargetGene", "CellType")
@@ -83,11 +97,6 @@ qcPredictions <- function(pred_list, pred_config, one_tss = TRUE)  {
 qcPredConfig <- function(pred_config, pred_list) {
   
   message("Running QC on pred_config file")
-  
-  # check that there is no baseline prediction set. baseline is used internally
-  if ("baseline" %in% pred_config$pred_id) {
-    stop("Prediction set called 'baseline' not allowed. Please rename.", call. = FALSE)
-  }
   
   # check that all predictors in pred_list are found in the pred_config file
   missing_preds <- setdiff(names(pred_list), pred_config$pred_id)
@@ -201,15 +210,15 @@ checkExistenceOfExperimentalGenesInPredictions <- function(expt, pred_list, summ
 }
 
 # combine a list of predictions with experimental data
-combineAllExptPred <- function(expt, pred_list, config, outdir) {
+combineAllExptPred <- function(expt, pred_list, config, outdir, fill_pred_na = TRUE) {
   
   # merge each set of predictions with experimental data
   prediction_sets <- structure(names(pred_list), names = names(pred_list))
   merged_list <- lapply(
     prediction_sets,
     function(p) {
-      combineSingleExptPred(expt = expt, pred = pred_list[[p]], pred_name = p,  config = config,
-                            outdir = outdir)
+      combineSingleExptPred(expt = expt, pred = pred_list[[p]], pred_name = p, config = config,
+                            outdir = outdir, fill_pred_na = fill_pred_na)
     })
   
   # combine merged data into one table
@@ -225,11 +234,16 @@ combineAllExptPred <- function(expt, pred_list, config, outdir) {
 }
 
 # merge predictions with experimental data
-combineSingleExptPred <- function(expt, pred, pred_name, config, outdir) {
-  
-  # Step 1: merging overlapping enhancer - gene pairs ----------------------------------------------
+combineSingleExptPred <- function(expt, pred, pred_name, config, outdir, fill_pred_na) {
   
   message("Overlapping predictions with experimental data for: ", pred_name)
+  
+  # replace any NA in predictions with fill value to avoid NAs in output
+  if (fill_pred_na == TRUE) {
+    pred <- fill_pred_na(pred, pred_name = pred_name, config = config)
+  }
+  
+  # Step 1: merging overlapping enhancer - gene pairs ----------------------------------------------
   
   # subset config to specified predictions
   config_pred <- subset(config, pred_id == pred_name)
@@ -486,6 +500,22 @@ check_one_tss <- function(pred_list, pred) {
   }
 }
 
+# replace NAs in prediction scores with appropriate fill values
+fill_pred_na <- function(pred, pred_name, config) {
+  
+  # get fill values for columns containing prediction scores in pred
+  fill_values <- config[config$pred_id == pred_name, c("pred_col", "fill_value")]
+  fill_values <- as.list(structure(fill_values$fill_value, names = fill_values$pred_col))
+  
+  # convert any integer scores to numeric to avoid errors when replacing NAs
+  pred <- mutate(pred, across(where(is.integer) & names(fill_values), as.numeric)) 
+  
+  # replace NAs with fill values
+  pred <- tidyr::replace_na(pred, replace = fill_values)
+  
+  return(pred)
+  
+}
 
 ## Deprecated import functions =====================================================================
 

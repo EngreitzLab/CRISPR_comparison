@@ -18,6 +18,10 @@ suppressPackageStartupMessages(source(simple_predictors_file))
 
 ## load data ---------------------------------------------------------------------------------------
 
+# load pred_config file
+pred_config <- fread(snakemake@input$pred_config,
+                     colClasses = c("alpha" = "numeric", "color" = "character"))
+
 # config entry for this comparison is used to load named list of input files
 config <- snakemake@config$comparisons[[snakemake@wildcards$comparison]]
 
@@ -38,10 +42,6 @@ tss_annot <- tss_annot[, -c("score", "strandTSS")]
 gene_annot <- fread(snakemake@input$gene_universe)
 colnames(gene_annot) <- c("chr", "start", "end", "gene", "score", "strand")
 
-# load pred_config file
-pred_config <- fread(snakemake@input$pred_config,
-                     colClasses = c("alpha" = "numeric", "color" = "character"))
-
 # load cell mapping file if provided
 ct_map_files <- config$cell_type_mapping
 if (!is.null(ct_map_files)) {
@@ -54,10 +54,9 @@ if (!is.null(ct_map_files)) {
 # QC pred_config file
 qcPredConfig(pred_config, pred_list = pred_list)
 
-# QC experimental data and predictors
-qcExperiment(expt, experimentalPositiveColumn = "Significant")
-qcPredictions(pred_list, pred_config, one_tss = FALSE)
-
+# QC predictions and experimental data
+qcPredictions(pred_list, pred_config = pred_config, one_tss = FALSE)
+expt <- qcExperiment(expt, pos_col = snakemake@params$pos_col, remove_na_pos = TRUE)
 
 ## process input data ------------------------------------------------------------------------------
 
@@ -85,22 +84,16 @@ if (any(pred_rows == 0)) {
 genes_summary_file <- file.path(outdir, "experimental_genes_in_predictions.txt")
 checkExistenceOfExperimentalGenesInPredictions(expt, pred_list, summary_file = genes_summary_file)
 
-# add 'Regulated' column (only significant pairs that have negative effect size) to experimental
-# data if not already existing. this allows overwriting this heuristic by encoding it in the
-# experimental data by a column called 'Regulated'
-if (!"Regulated" %in% colnames(expt)) {
-  expt$Regulated <- expt$Significant == TRUE & expt$EffectSize < 0
-}
-
 # merge experimental data with predictions
 message("\nMerging experimentals data and predictions:")
 merged <- combineAllExptPred(expt = expt, 
                              pred_list = pred_list,
                              config = pred_config,
-                             outdir = outdir)
+                             outdir = outdir,
+                             fill_pred_na = TRUE)
 
 # add simple default baseline predictors
-message("Adding baseline predictors:\n\tdistance to TSS\n\tnearest TSS")
+message("Adding baseline predictors:\n\tdistance to TSS/gene\n\tnearest TSS/gene")
 dist_to_tss <- computeDistToTSS(expt)
 nearest_tss <- nearestFeaturePred(expt, features = tss_annot, name = "nearestTSS")
 nearest_gene <- nearestFeaturePred(expt, features = gene_annot, name = "nearestGene")

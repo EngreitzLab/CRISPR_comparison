@@ -27,74 +27,44 @@ library(UpSetR)
 source(file.path(snakemake@scriptdir, "crisprComparisonPlotFunctions.R"))
 ```
 
-```{r loadData}
+```{r prepareInputData}
 # load merged data and pred_config file
 merged <- fread(snakemake@input$merged, colClasses = c("ValidConnection" = "character"))
 pred_config <- fread(snakemake@input$pred_config,
                      colClasses = c("alpha" = "numeric", "color" = "character"))
 
-# extract predictions and experiment input files from config in snakemake object
-comp_config <- snakemake@config$comparisons[[snakemake@wildcards$comparison]]
-expt_file <- basename(comp_config$expt)
-pred_file <- basename(unlist(comp_config$pred))
+# process pred_config file for benchmarking analyses
+pred_config <- processPredConfig(pred_config, merged = merged)
 
-## MOVE TO MERGE IF ACCEPTABLE SOLUTIONS
-merged <- merged[!is.na(merged$Regulated), ]
-merged <- replace_na(merged, replace = list(pred_value = 0))
-```
+# process merged data for benchmarking analyses, including filtering for ValidConnection == TRUE
+merged <- processMergedData(merged, pred_config = pred_config, filter_valid_connections = TRUE,
+                            include_missing_predictions = snakemake@params$include_missing_predictions,
+                            distToTSS_as_kb = TRUE)
 
-<br>
+# get minimum alpha value for predictors that do not have alpha specified (default = min alpha)
+#pred_config <- getDefaultAlpha(pred_config, merged = merged)
 
-```{r processInput}
-# add baseline predictors to pred_config
-pred_config <- data.frame(
-    pred_id = "baseline",
-    pred_col = c("distToTSS", "nearestTSS", "nearestGene"),
-    boolean = c(FALSE, TRUE, TRUE),
-    alpha = c(1e4, 1, 1),
-    aggregate_function = c("mean", "max", "max"),
-    fill_value = c(Inf, 0, 0),
-    inverse_predictor = c(TRUE, FALSE, FALSE),
-    pred_name_long = c("Distance to TSS", "Nearest TSS", "Nearest Gene"),
-    color = rep(NA_character_, 3)
-  ) %>% 
-  rbind(pred_config, .)
-
-# add unique predictor identifier to pred_config
-pred_config <- pred_config %>% 
-  unite(pred_id, pred_col, col = pred_uid, sep = ".", remove = FALSE)
-
-# add the unique predictor identifiers and long names to merged data
-merged <- pred_config %>% 
-  select(pred_id, pred_col, pred_uid, pred_name_long) %>% 
-  left_join(x = merged, y = ., by = c("pred_id", "pred_col"))
-
-# filter pred_config for predictors also found in merged data
-pred_config <- subset(pred_config, pred_uid %in% merged$pred_uid)
-
-# set colors for baseline predictors if colors are set for the other predictors
-if (any(!is.na(pred_config$color))) {
-  pred_config[tail(seq_len(nrow(pred_config)), 3), "color"] <- c("#ffa600", "#595959", "#bebebe")
-  pred_colors <- deframe(select(pred_config, pred_name_long, color))
-} else {
+# set colors for predictors in plots
+if (all(is.na(pred_config$color))) {
   pred_colors <- NULL
+} else {
+  pred_colors <- deframe(select(pred_config, pred_name_long, color))
 }
 
-# filter merged data for valid connections
-merged <- subset(merged, ValidConnection == "TRUE")
-
-# filter out CRE-G pairs with missing data if specified
-if (snakemake@params$include_missing_predictions == FALSE) {
-  merged <- merged[merged$Prediction == 1, ]
-}
-
-# get default alpha value for predictors that do not have alpha specified (default = min alpha)
-pred_config <- getDefaultAlpha(pred_config, merged = merged)
+# column identifying experimental positives
+pos_col <- snakemake@params$pos_col
 ```
 
 This is the output for the comparison **`r snakemake@wildcards$comparison`**. Following analyses
 evaluate how well the experimental data agrees with the predictions of CRE - gene pairs. Following
 input files were used:
+
+```{r}
+# extract predictions and experiment input files from config in snakemake object
+comp_config <- snakemake@config$comparisons[[snakemake@wildcards$comparison]]
+expt_file <- basename(comp_config$expt)
+pred_file <- basename(unlist(comp_config$pred))
+```
 
 Experimental data: **`r expt_file`**  
 Predictions: **`r pred_file`**
@@ -114,36 +84,22 @@ datatable(pred_config[, -1], options = list(pageLength = 20), autoHideNavigation
 The number of CRISPR enhancer-gene pairs that overlapped enhancer-gene pairs for each predictor are
 counted. CRISPR enhancer-gene pairs that did not overlap any predicted pairs, are considered not
 predicted. Large fractions of CRISPR E-G pairs not overlapping predictions lead to poor performance.
-
 ```{r overlaps, fig.height=5, fig.width=7}
-# get all cell types in merged
-cell_types <- unique(merged$ExperimentCellType)
-if (length(cell_types) > 1) {
-  cell_types <- c("combined", cell_types)
-}
-names(cell_types) <- cell_types
-
 # count and plot number of CRISPR E-G pairs overlapping prediction E-G pairs
-overlap_plots <- lapply(cell_types, FUN = plotOverlaps, df = merged)
+overlap_plots <- applyCellTypes(merged, .fun = plotOverlaps)
 
-# save plots to file
+# directory to save plots in addition to adding them to report
 plotdir <- file.path(dirname(snakemake@output[[1]]), "plots")
 dir.create(plotdir, recursive = TRUE, showWarnings = FALSE)
-ovl_plot_files <- file.path(plotdir, paste0(names(overlap_plots), "_expt_pred_overlaps.pdf"))
-for (i in seq_along(overlap_plots)) {
-  ggsave(overlap_plots[[i]], filename = ovl_plot_files[[i]], height = 3.5, width = 7,
-         device = "pdf")
-}
+
+# save plots to files
+savePlotList(overlap_plots, basename = "expt_pred_overlaps.pdf", path = plotdir, height = 3.5,
+             width = 7)
 ```
 
 ```{r results='asis', fig.cap=cap, fig.height=3.5, fig.width=7, warning=FALSE}
 # print plots for every cell type in tabs
-for (i in cell_types){
-  cat("##", i, '{.unlisted .unnumbered}', '\n', '<br>', '\n')
-  plot(overlap_plots[[i]])
-  cat('\n', '<br>', '\n\n')
-}
-cat("# {.unlisted .unnumbered}")
+printTabbedPlots(overlap_plots, section_level = "#")
 
 # figure caption
 cap <- paste("Number of CRISPR enhancer-gene pairs overlapping enhancer-gene pairs in predictions.")
@@ -158,9 +114,7 @@ performance.
 
 ```{r computePRC}
 # compute precision-recall tables for all cell types
-pos_col <- "Regulated"
-pr <- lapply(cell_types, FUN = calcPRCurves, df = merged, pred_config = pred_config,
-             pos_col = pos_col)
+pr <- applyCellTypes(merged, .fun = calcPRCurves, pred_config = pred_config, pos_col = pos_col)
 
 # combine pr tables into one table and save to file for other downstream analyses
 pr_table <- rbindlist(pr, idcol = "ExperimentCellType")
@@ -172,38 +126,34 @@ perf_summary <- lapply(pr, FUN = makePRSummaryTable, pred_config = pred_config,
 ```
 
 ```{r plotPRC, warning=FALSE}
-# calculate percentage of experimental true positives in the experimental dataset per cell type
-pct_pos <- lapply(cell_types, FUN = calcPctPos, df = merged, pos_col = pos_col)
+# calculate number and percentage of experimental true positives in the experimental dataset
+n_pos <- applyCellTypes(merged, .fun = calcNPos, pos_col = pos_col)
+pct_pos <- applyCellTypes(merged, .fun = calcPctPos, pos_col = pos_col)
 
 # get number of tested enhancer gene pairs in merged data and create title for PR plot
-pr_title <- paste0(snakemake@wildcards$comparison, " (", length(unique(merged$name)), " pairs)")
+n_pairs <- applyCellTypes(merged, .fun = function(df) n_distinct(df$name) )
+pr_title <- paste0(snakemake@wildcards$comparison, " (", unlist(n_pairs[names(pr)]), " pairs)")
 
 # make PRC plots
+n_pos <- n_pos[names(pr)]
 pct_pos <- pct_pos[names(pr)]
-pr_plots <- mapply(FUN = makePRCurvePlot, pr_df = pr, pct_pos = pct_pos,
+pr_plots <- mapply(FUN = makePRCurvePlot, pr_df = pr, n_pos = n_pos, pct_pos = pct_pos, plot_name = pr_title,
                    MoreArgs = list(pred_config = pred_config,
                                    min_sensitivity = snakemake@params$min_sensitivity,
-                                   plot_name = pr_title, line_width = 1.2, point_size = 3.5,
+                                   line_width = 1.2, point_size = 3.5,
                                    text_size = 13, colors = pred_colors),
                    SIMPLIFY = FALSE)
 
-# save plots to file
-pr_plot_files <- file.path(plotdir, paste0(names(pr_plots), "_prc_full_expt_data.pdf"))
-for (i in seq_along(pr_plots)) {
-  ggsave(pr_plots[[i]], filename = pr_plot_files[[i]], height = 4.5, width = 7.5, device = "pdf")
-}
+# save plots to files
+savePlotList(pr_plots, basename = "prc_full_expt_data.pdf", path = plotdir, height = 4.5,
+             width = 7.5)
 ```
 
 ## Precision-recall curves {.tabset .tabset-pills}
 
 ```{r results='asis', fig.cap=cap, fig.height=4.5, fig.width=7.5, warning=FALSE}
 # print plots for every cell type in tabs
-for (i in cell_types){
-  cat("###", i, '{.unlisted .unnumbered}', '\n', '<br>', '\n')
-  plot(pr_plots[[i]])
-  cat('\n', '<br>', '\n\n')
-}
-cat("## {.unlisted .unnumbered}")
+printTabbedPlots(pr_plots, section_level = "##")
 
 # figure caption
 cap <- paste("Precision-recall curves for all predictors in all matching experimental cell types.",
@@ -221,66 +171,32 @@ perf_summary_print <- perf_summary %>%
   bind_rows(.id = "cell_type") %>% 
   select(cell_type, predictor = pred_name_long, AUPRC, max_F1, alpha_cutoff, sensitivity_at_cutoff,
          precision_at_cutoff, min_sensitivity, sensitivity_at_min_sensitivity,
-         precision_at_min_sensitivity)
+         precision_at_min_sensitivity, alpha_at_min_sensitivity)
 
-# pretty print PR summary table
-datatable(
-  perf_summary_print,
-  extensions = c("FixedColumns", "Buttons"),
-  options = list(
-    pageLength = 20,
-    dom = 'Bfrtip',
-    scrollX = TRUE,
-    fixedColumns = list(leftColumns = 3),
-    buttons = c('copy', 'csv', 'excel', 'pdf', 'print')
-  ),
-  autoHideNavigation = TRUE
-)
+# save to text file
+write_tsv(perf_summary_print,
+          file = file.path(dirname(snakemake@output[[1]]), "performance_summary.txt"))
 
+# pretty-print PR summary table for report
+perf_summary_print  %>% 
+  mutate(across(where(is.double), round, digits = 3)) %>% 
+  datatable(
+    perf_summary_print,
+    extensions = c("FixedColumns", "Buttons"),
+    options = list(
+      pageLength = 20,
+      dom = 'Bfrtip',
+      scrollX = TRUE,
+      fixedColumns = list(leftColumns = 3),
+      buttons = c('copy', 'csv', 'excel', 'pdf', 'print')
+    ),
+    autoHideNavigation = TRUE
+    ) %>%
+  formatStyle(c(2, 4, 7), `border-right` = "solid 1px")
+
+# figure caption
 cap <- paste("Precision-recall performance summary for predictors. Table shows preformance metrics",
              "and precision and recall at specified alpha and minimum sensitity (recall) of 0.7.")
-```
-
-***
-
-# Predictor scores versus experimental outcome {.tabset .tabset-pills}
-The scores of each predictor is compared between experimental positives and negatives to get another
-assessment of how well it distinguishes true enhancer - gene pairs from negatives.
-
-```{r, warning=FALSE}
-# remove boolean predictors for these plots
-bool_preds <- pull(filter(pred_config, boolean == TRUE), pred_uid)
-merged_quant <- filter(merged, !pred_uid %in% bool_preds)
-
-# create plots showing predictor values as a function of experimental outcome
-pred_plots <- lapply(cell_types, FUN = plotPredictorsVsExperiment, df = merged_quant,
-                     pos_col = pos_col, pred_names_col = "pred_name_long", text_size = 13)
-
-# calculate plot dimensions based on number of predictors
-pred_plots_dims <- get_row_col(pred_plots[[1]])
-plot_height <- ceiling(pred_plots_dims[1] * 2.5)
-plot_width  <- ceiling(pred_plots_dims[2] * 3.5)
-
-# save scatter plots to files
-for (n in names(pred_plots)) {
-  ggsave(pred_plots[[n]], filename = file.path(plotdir, paste0(n, "_predictor_vs_experiment.pdf")),
-         height = plot_height, width = plot_width, device = "pdf")
-}
-```
-
-```{r, results='asis', fig.cap=cap, fig.height=plot_height, fig.width=plot_width, warning=FALSE}
-# print plots for every cell type in tabs
-for (i in cell_types){
-  cat("##", i, '{.unlisted .unnumbered}', '\n', '<br>', '\n')
-  plot(pred_plots[[i]])
-  cat('\n', '<br>', '\n\n')
-}
-cat("# {.unlisted .unnumbered}")
-
-cap <- paste("Predictor scores vs. experimental outcome for all predictors. Each point represents",
-  "one E-G pair in the experimental data. Cases where the predictor value is 0 or infinite might",
-  "correspond to E-G pairs that were not found in predictions and predicor values were filled in",
-  "according to the prediction config file")
 ```
 
 ***
@@ -292,38 +208,63 @@ show how well a predictor is associated with effects observed in CRISPRi enhance
 intuitive way.
 
 ```{r effectSizeScatter, include=FALSE}
-# add label for each pair based on whether it's significant and activates or represses it's target
-merged_quant <- labelPairs(merged_quant, sig_col = "Significant")
+# make predictor vs effect size scatter plots
+es_scatters <- applyCellTypes(merged, .fun = plotPredictorsVsEffectSize, pos_col = pos_col,
+                              pred_names_col = "pred_name_long", point_size = 2, text_size = 13,
+                              alpha_value = 1, label.x.npc = 0.7, ncol = 2)
 
-# make scatter plots
-es_scatters <- lapply(cell_types, FUN = predScatterPlots, df = merged_quant, y_col = "EffectSize",
-                      point_size = 2, text_size = 13, alpha_value = 1,
-                      pred_names_col = "pred_name_long")
-
-# calculate plot dimensions based on number of predictors
+# calculate plot dimensions based on rows and column in plot
 es_scatter_dims <- get_row_col(es_scatters[[1]])
 plot_height <- ceiling(es_scatter_dims[1] * 2.5)
 plot_width  <- ceiling(es_scatter_dims[2] * 3.5)
 
 # save scatter plots to files
-for (n in names(es_scatters)) {
-  ggsave(es_scatters[[n]], filename = file.path(plotdir, paste0(n, "_EffectSize_scatter_plots.pdf")),
-         height = plot_height, width = plot_width, device = "pdf")
-}
+savePlotList(es_scatters, basename = "EffectSize_scatter_plots.pdf", path = plotdir,
+             height = plot_height, width = plot_width)
 ```
 
 ```{r, results='asis', fig.cap=cap, fig.height=plot_height, fig.width=plot_width}
 # print plots for every cell type in tabs
-for (i in cell_types){
-  cat("##", i, '{.unlisted .unnumbered}', '\n', '<br>', '\n')
-  plot(es_scatters[[i]])
-  cat('\n', '<br>', '\n\n')
-}
-cat("# {.unlisted .unnumbered}")
+printTabbedPlots(es_scatters, section_level = "#")
 
-cap <- paste("Predictors versus experimental effect size. Effect size is taken from 'EffectSize'",
-             "column in experimental data, while predictors correspond to predictor values from", 
-             "prediction files.")
+# figure caption
+cap <- paste("Predictors versus CRISPRi effect size. Effect size is defined as percent change in",
+             "target gene expression upon CRISPRi perturbation of an enhancer. Effect size values",
+             "are taken from 'EffectSize' column in experimental data, while predictor scores",
+             "correspond to scores from prediction files. Numbers show Spearman's rank correlation",
+             "coefficient (rho) between effect size and predictor scores.")
+```
+
+***
+
+# Predictor scores versus experimental outcome {.tabset .tabset-pills}
+The scores of each predictor is compared between experimental positives and negatives to get another
+assessment of how well it distinguishes true enhancer - gene pairs from negatives.
+
+```{r, warning=FALSE}
+# create plots showing predictor values as a function of experimental outcome
+pred_plots <- applyCellTypes(merged, .fun = plotPredictorsVsExperiment, pos_col = pos_col,
+                             pred_names_col = "pred_name_long", text_size = 13)
+
+# calculate plot dimensions based on number of predictors
+pred_plots_dims <- get_row_col(pred_plots[[1]])
+plot_height <- ceiling(pred_plots_dims[1] * 2.5)
+plot_width  <- ceiling(pred_plots_dims[2] * 3.5)
+
+# save scatter plots to files
+savePlotList(pred_plots, basename = "predictor_vs_experiment.pdf", path = plotdir,
+             height = plot_height, width = plot_width)
+```
+
+```{r, results='asis', fig.cap=cap, fig.height=plot_height, fig.width=plot_width, warning=FALSE}
+# print plots for every cell type in tabs
+printTabbedPlots(pred_plots, section_level = "#")
+
+# figure caption
+cap <- paste("Predictor scores vs. experimental outcome for all predictors. Each point represents",
+  "one E-G pair in the experimental data. Cases where the predictor value is 0 or infinite might",
+  "correspond to E-G pairs that were not found in predictions and predicor values were filled in",
+  "according to the prediction config file")
 ```
 
 ***
@@ -341,14 +282,13 @@ if (is.null(snakemake@params$dist_bins_kb)) {
 }
 
 # bin pairs by distance
-dist_bins <- merged_quant %>% 
+dist_bins <- merged %>% 
   filter(pred_uid == "baseline.distToTSS") %>% 
-  mutate(dist_kb = pred_value / 1000) %>% 
-  mutate(`distToTSS (bins)` = cut(dist_kb, breaks = dist_breaks), right = FALSE) %>% 
+  mutate(`distToTSS (bins)` = cut(pred_value, breaks = dist_breaks), right = FALSE) %>% 
   select(name, `distToTSS (bins)`)
 
-# add distance bins to merged data
-merged_bins <- left_join(merged_quant, dist_bins, by = "name") %>% 
+# add distance bins to merged
+merged_bins <- left_join(merged, dist_bins, by = "name") %>% 
   filter(!is.na(`distToTSS (bins)`))
 
 # get unique experimentally tested pairs
@@ -395,56 +335,51 @@ n_bins <- n_distinct(merged_bins_filt$`distToTSS (bins)`)
 nrow <- ceiling(n_bins / 2)
 
 # create PR curves per distance bin for all cell types
-dist_prc_plots <- lapply(cell_types, FUN = makePRCurveSubsets, df = merged_bins_filt,
-                         subset_cols = "distToTSS (bins)", pred_config = pred_config,
-                         pos_col = pos_col, min_sensitivity = snakemake@params$min_sensitivity,
-                         line_width = 1.2, point_size = 3.5, text_size = 13,
-                         nrow = nrow, colors = pred_colors)
+dist_prc_plots <- applyCellTypes(merged_bins_filt, .fun = makePRCurveSubsets,
+                                 subset_cols = "distToTSS (bins)", pred_config = pred_config,
+                                 pos_col = pos_col,
+                                 min_sensitivity = snakemake@params$min_sensitivity,
+                                 line_width = 1.2, point_size = 3.5, text_size = 13, nrow = nrow,
+                                 colors = pred_colors)
 
 # calculate plot dimensions based on number of features
-plot_height <- nrow * 3.5
-plot_width <- ceiling(n_bins / nrow) * 5
+plot_height <- nrow * 4
+plot_width <- ceiling(n_bins / nrow) * 6
 
 # save distance prc plots to files
-for (n in names(dist_prc_plots)) {
-  ggsave(dist_prc_plots[[n]], filename = file.path(plotdir, paste0(n, "_distance_binned_prc.pdf")),
-         height = plot_height, width = plot_width, device = "pdf")
-}
+savePlotList(dist_prc_plots, basename = "distance_binned_prc.pdf", path = plotdir,
+             height = plot_height, width = plot_width)
 ```
 
 ```{r, results='asis', fig.cap=cap, fig.height=plot_height, fig.width=plot_width}
 # print plots for every cell type in tabs
-for (i in cell_types){
-  cat("###", i, '{.unlisted .unnumbered}', '\n', '<br>', '\n')
-  plot(dist_prc_plots[[i]])
-  cat('\n', '<br>', '\n\n')
-}
-cat("## {.unlisted .unnumbered}")
+printTabbedPlots(dist_prc_plots, section_level = "##")
 
+# figure caption
 cap <- paste("Precision-Recall curves for different distance to TSS bins (kb).")
 ```
 
 ## Predictor scores versus experimental outcome {.tabset .tabset-pills}
 ```{r PredVsExpVsDist, warning=FALSE}
 # create plots showing predictor values as a function of experimental outcome
-dist_pred_plots <- lapply(cell_types, FUN = plotPredVsExperimentSubsets, df = merged_bins_filt,
-                          subset_cols = "distToTSS (bins)", pos_col = pos_col,
-                          pred_names_col = "pred_name_long", text_size = 13)
+dist_pred_plots <- applyCellTypes(merged_bins_filt, .fun = plotPredVsExperimentSubsets,
+                                  subset_cols = "distToTSS (bins)", pos_col = pos_col,
+                                  pred_names_col = "pred_name_long", text_size = 13)
 
 # calculate plot dimensions based on number of features and predictors
 plot_width <- ceiling(n_bins * 2.5)
-plot_height <- ceiling(n_distinct(merged_bins_filt$pred_name_long) * 2)
+plot_height <- ceiling(n_distinct(merged_bins_filt$pred_name_long) * 1.5)
+
+# save distance predictor vs. experiment plots to files
+savePlotList(dist_pred_plots, basename = "distance_binned_pred_vs_expt.pdf", path = plotdir,
+             height = plot_height, width = plot_width)
 ```
 
 ```{r, results='asis', fig.cap=cap, fig.height=plot_height, fig.width=plot_width}
 # print plots for every cell type in tabs
-for (i in cell_types){
-  cat("###", i, '{.unlisted .unnumbered}', '\n', '<br>', '\n')
-  plot(dist_pred_plots[[i]])
-  cat('\n', '<br>', '\n\n')
-}
-cat("## {.unlisted .unnumbered}")
+printTabbedPlots(dist_pred_plots, section_level = "##")
 
+# figure caption
 cap <- paste("Predictor scores versus experimental outcome for different distance to TSS bins",
              "(kb).")
 ```
@@ -452,25 +387,25 @@ cap <- paste("Predictor scores versus experimental outcome for different distanc
 ## Effect size vs predictors {.tabset .tabset-pills}
 ```{r EsVsPredVsDist, warning=FALSE}
 # create plots showing effect size as function of predictor scores
-dist_es_plots <- lapply(cell_types, FUN = predScatterPlotsSubsets, df = merged_bins_filt,
-                        subset_cols = "distToTSS (bins)", y_col = "EffectSize",
-                        pred_names_col = "pred_name_long", point_size = 2, text_size = 10,
-                        alpha_value = 1)
+dist_es_plots <- applyCellTypes(merged_bins_filt, .fun = predVsEffectSizeSubsets,
+                                subset_cols = "distToTSS (bins)", pos_col = pos_col,
+                                pred_names_col = "pred_name_long", point_size = 2, text_size = 16,
+                                label.x.npc = 0.65)
 
 # calculate plot dimensions based on number of features and predictors
-plot_height <- ceiling(n_bins * 2)
+plot_height <- ceiling(n_bins * 2.5)
 plot_width <- ceiling(n_distinct(merged_bins_filt$pred_name_long) * 2)
+
+# save distance effect size vs. predictor plots to files
+savePlotList(dist_es_plots, basename = "distance_binned_EffectSize_scatter.pdf", path = plotdir,
+             height = plot_height, width = plot_width)
 ```
 
 ```{r, results='asis', fig.cap=cap, fig.height=plot_height, fig.width=plot_width}
 # print plots for every cell type in tabs
-for (i in cell_types){
-  cat("###", i, '{.unlisted .unnumbered}', '\n', '<br>', '\n')
-  plot(dist_es_plots[[i]])
-  cat('\n', '<br>', '\n\n')
-}
-cat("## {.unlisted .unnumbered}")
+printTabbedPlots(dist_es_plots, section_level = "##")
 
+# figure caption
 cap <- paste("CRISPR effect size vs predictor scores for different distance to TSS bins (kb).")
 ```
 
@@ -484,6 +419,48 @@ predictor vs experiment and effect size plots are created.
 # columns in merged data containing gene and enhancer features
 gene_feat_cols <- grep(colnames(merged), pattern = "^gene_feature.+$", value = TRUE)
 enh_feat_cols <- grep(colnames(merged), pattern = "^enh_feature_.+$", value = TRUE)
+
+# plot the number of positive and negative pairs per gene and enhancer feature
+if (length(c(gene_feat_cols, enh_feat_cols)) > 0) {
+  
+    # count the number of positive and negative pairs per gene and enhancer feature
+    n_pairs_features <- countPairsFeatures(merged, pos_col = pos_col)
+    
+    # plot the number of pairs per feature type
+    n_pairs_plots <- plotPairsFeatures(n_pairs_features)
+    
+}
+
+# calculate dimensions of plot based on number of rows and columns in faceted plots
+if (length(gene_feat_cols) > 0) {
+  gene_plot_dims <- get_row_col(n_pairs_plots$Gene)
+  gene_plot_height <- ceiling(gene_plot_dims[1] * 2.5)
+  gene_plot_width  <- ceiling(gene_plot_dims[2] * 2.5)
+} else {
+  gene_plot_height <- 5
+  gene_plot_width  <- 7
+}
+
+if (length(enh_feat_cols) > 0) {
+  enh_plot_dims <- get_row_col(n_pairs_plots$Enhancer)
+  enh_plot_height <- ceiling(enh_plot_dims[1] * 2.5)
+  enh_plot_width  <- ceiling(enh_plot_dims[2] * 2.5)
+} else {
+  enh_plot_height <- 5
+  enh_plot_width  <- 7
+}
+```
+
+```{r, fig.height=gene_plot_height, fig.width=gene_plot_width}
+if (length(gene_feat_cols) > 0) {
+  n_pairs_plots$Gene
+}
+```
+
+```{r, fig.height=enh_plot_height, fig.width=enh_plot_width}
+if (length(enh_feat_cols) > 0) {
+  n_pairs_plots$Enhancer
+}
 ```
 
 ## Precision-recall curves
@@ -491,13 +468,13 @@ enh_feat_cols <- grep(colnames(merged), pattern = "^enh_feature_.+$", value = TR
 ### Gene features {.tabset .tabset-pills}
 ```{r geneFeaturePRC, warning=FALSE}
 if (length(gene_feat_cols) > 0) {
-
+ 
   # create subset plots for all cell types
-  gene_feat_plots <- lapply(cell_types, FUN = makePRCurveSubsets, df = merged,
-                            subset_cols = gene_feat_cols, pred_config = pred_config,
-                            pos_col = pos_col, min_sensitivity = snakemake@params$min_sensitivity,
-                            line_width = 1.2, point_size = 3.5, text_size = 13,
-                            colors = pred_colors)
+  gene_feat_plots <- applyCellTypes(merged, .fun = makePRCurveSubsets, subset_cols = gene_feat_cols,
+                                    pred_config = pred_config, pos_col = pos_col,
+                                    min_sensitivity = snakemake@params$min_sensitivity,
+                                    line_width = 1.2, point_size = 3.5, text_size = 13,
+                                    colors = pred_colors)
   
   # calculate plot dimensions based on number of features
   n_features <- length(gene_feat_cols)
@@ -510,13 +487,9 @@ if (length(gene_feat_cols) > 0) {
 if (length(gene_feat_cols) > 0) {
   
   # print plots for every cell type in tabs
-  for (i in cell_types){
-    cat("####", i, '{.unlisted .unnumbered}', '\n', '<br>', '\n')
-    plot(gene_feat_plots[[i]])
-    cat('\n', '<br>', '\n\n')
-  }
-  cat("### {.unlisted .unnumbered}")
+  printTabbedPlots(gene_feat_plots, section_level = "###")
   
+  # figure caption
   cap <- paste("Precision-Recall curves for subsets of the data based on provided gene features.")
   
 }
@@ -524,13 +497,14 @@ if (length(gene_feat_cols) > 0) {
 
 ### Enhancer features {.tabset .tabset-pills}
 ```{r enhFeaturePRC, warning=FALSE}
-if (length(gene_feat_cols) > 0) {
+if (length(enh_feat_cols) > 0) {
   
   # create subset plots for all cell types
-  enh_feat_plots <- lapply(cell_types, FUN = makePRCurveSubsets, df = merged,
-                           subset_cols = enh_feat_cols, pred_config = pred_config,
-                           pos_col = pos_col, min_sensitivity = snakemake@params$min_sensitivity,
-                           line_width = 1.2, point_size = 3.5, text_size = 13, colors = pred_colors)
+  enh_feat_plots <- applyCellTypes(merged, .fun = makePRCurveSubsets, subset_cols = enh_feat_cols,
+                                   pred_config = pred_config, pos_col = pos_col,
+                                   min_sensitivity = snakemake@params$min_sensitivity,
+                                   line_width = 1.2, point_size = 3.5, text_size = 13,
+                                   colors = pred_colors)
   
   # calculate plot dimensions based on number of features
   n_features <- length(enh_feat_cols)
@@ -540,15 +514,10 @@ if (length(gene_feat_cols) > 0) {
 ```
 
 ```{r, results='asis', fig.cap=cap, fig.height=plot_height, fig.width=10}
-if (length(gene_feat_cols) > 0) {
+if (length(enh_feat_cols) > 0) {
 
   # print plots for every cell type in tabs
-  for (i in cell_types){
-    cat("####", i, '{.unlisted .unnumbered}', '\n', '<br>', '\n')
-    plot(enh_feat_plots[[i]])
-    cat('\n', '<br>', '\n\n')
-  }
-  cat("### {.unlisted .unnumbered}")
+  printTabbedPlots(enh_feat_plots, section_level = "###")
   
   cap <- paste("Precision-Recall curves for subsets of the data based on provided enhancer",
   "features.")
@@ -563,12 +532,12 @@ if (length(gene_feat_cols) > 0) {
 if (length(gene_feat_cols) > 0) {
 
   # create plots showing predictor values as a function of experimental outcome
-  pred_plots <- lapply(cell_types, FUN = plotPredVsExperimentSubsets, df = merged_quant,
-                       subset_cols = gene_feat_cols, pos_col = pos_col,
-                       pred_names_col = "pred_name_long", text_size = 13)
+  pred_plots <- applyCellTypes(merged, .fun = plotPredVsExperimentSubsets, 
+                               subset_cols = gene_feat_cols, pos_col = pos_col,
+                               pred_names_col = "pred_name_long", text_size = 13)
   
   # calculate plot dimensions based on number of predictors
-  plot_height <- ceiling(n_distinct(merged_quant$pred_name_long) * length(gene_feat_cols) * 2)
+  plot_height <- ceiling(n_distinct(merged$pred_name_long) * length(gene_feat_cols) * 1.5)
 
 }
 ```
@@ -577,45 +546,36 @@ if (length(gene_feat_cols) > 0) {
 if (length(gene_feat_cols) > 0) {
   
   # print plots for every cell type in tabs
-  for (i in cell_types){
-    cat("####", i, '{.unlisted .unnumbered}', '\n', '<br>', '\n')
-    plot(pred_plots[[i]])
-    cat('\n', '<br>', '\n\n')
-  }
-  cat("### {.unlisted .unnumbered}")
+  printTabbedPlots(pred_plots, section_level = "###")
   
-  cap <- paste("Predictor scores vs. experimental outcome for all predictors for subsets of the data",
-               "based on provided gene features.")
+  cap <- paste("Predictor scores vs. experimental outcome for all predictors for subsets of the",
+               "data based on provided gene features.")
   
 }
 ```
 
 ### Enhancer features {.tabset .tabset-pills}
 ```{r enhFeaturePredVsExp}
-if (length(gene_feat_cols) > 0) {
+if (length(enh_feat_cols) > 0) {
   
   # create plots showing predictor values as a function of experimental outcome
-  pred_plots <- lapply(cell_types, FUN = plotPredVsExperimentSubsets, df = merged_quant,
-                       subset_cols = enh_feat_cols, pos_col = pos_col,
-                       pred_names_col = "pred_name_long", text_size = 13)
+  pred_plots <- applyCellTypes(merged, .fun = plotPredVsExperimentSubsets,
+                               subset_cols = enh_feat_cols, pos_col = pos_col,
+                               pred_names_col = "pred_name_long", text_size = 13)
   
   # calculate plot dimensions based on number of predictors
-  plot_height <- ceiling(n_distinct(merged_quant$pred_name_long) * length(enh_feat_cols) * 2)
+  plot_height <- ceiling(n_distinct(merged$pred_name_long) * length(enh_feat_cols) * 1.5)
   
 }
 ```
 
 ```{r, results='asis', fig.cap=cap, fig.height=plot_height, fig.width=7}
-if (length(gene_feat_cols) > 0) {
+if (length(enh_feat_cols) > 0) {
   
   # print plots for every cell type in tabs
-  for (i in cell_types){
-    cat("####", i, '{.unlisted .unnumbered}', '\n', '<br>', '\n')
-    plot(pred_plots[[i]])
-    cat('\n', '<br>', '\n\n')
-  }
-  cat("### {.unlisted .unnumbered}")
+  printTabbedPlots(pred_plots, section_level = "###")
   
+  # figure caption
   cap <- paste("Predictor scores vs. experimental outcome for all predictors for subsets of the data",
                "based on provided gene features")
 
@@ -629,14 +589,13 @@ if (length(gene_feat_cols) > 0) {
 if (length(gene_feat_cols) > 0) {
   
   # create plots showing effect size as function of predictor scores
-  es_plots <- lapply(cell_types, FUN = predScatterPlotsSubsets, df = merged_quant,
-                     subset_cols = gene_feat_cols, y_col = "EffectSize",
-                     pred_names_col = "pred_name_long", point_size = 2, text_size = 10,
-                     alpha_value = 1)
+  es_plots <- applyCellTypes(merged, .fun = predVsEffectSizeSubsets, subset_cols = gene_feat_cols,
+                             pos_col = pos_col, pred_names_col = "pred_name_long", point_size = 2,
+                             text_size = 16, label.x.npc = 0.65)
   
   # calculate plot dimensions based on number of predictors
-  plot_height <- ceiling(length(gene_feat_cols) * 4.25)
-  plot_width <- ceiling(n_distinct(merged_quant$pred_name_long) * 2)
+  plot_height <- ceiling(length(gene_feat_cols) * 5.75)
+  plot_width <- ceiling(n_distinct(merged$pred_name_long) * 2)
 
 }
 ```
@@ -645,13 +604,9 @@ if (length(gene_feat_cols) > 0) {
 if (length(gene_feat_cols) > 0) {
 
   # print plots for every cell type in tabs
-  for (i in cell_types){
-    cat("####", i, '{.unlisted .unnumbered}', '\n', '<br>', '\n')
-    plot(es_plots[[i]])
-    cat('\n', '<br>', '\n\n')
-  }
-  cat("### {.unlisted .unnumbered}")
+  printTabbedPlots(es_plots, section_level = "###")
   
+  # figure caption
   cap <- paste("Effect size vs. predictor scores for all predictors for subsets of the data based on",
                "provided gene features")
 
@@ -660,36 +615,58 @@ if (length(gene_feat_cols) > 0) {
 
 ### Enhancer features {.tabset .tabset-pills}
 ```{r enhFeatureEsScatter}
-if (length(gene_feat_cols) > 0) {
+if (length(enh_feat_cols) > 0) {
   
   # create plots showing effect size as function of predictor scores
-  es_plots <- lapply(cell_types, FUN = predScatterPlotsSubsets, df = merged_quant,
-                     subset_cols = enh_feat_cols, y_col = "EffectSize",
-                     pred_names_col = "pred_name_long", point_size = 2, text_size = 10,
-                     alpha_value = 1)
+  es_plots <- applyCellTypes(merged, .fun = predVsEffectSizeSubsets, subset_cols = enh_feat_cols,
+                             pos_col = pos_col, pred_names_col = "pred_name_long", point_size = 2,
+                             text_size = 16, label.x.npc = 0.65)
   
   # calculate plot dimensions based on number of predictors
-  plot_height <- ceiling(length(enh_feat_cols) * 4.25)
-  plot_width <- ceiling(n_distinct(merged_quant$pred_name_long) * 2)
+  plot_height <- ceiling(length(enh_feat_cols) * 5.75)
+  plot_width <- ceiling(n_distinct(merged$pred_name_long) * 2)
 
 }
 ```
 
 ```{r, results='asis', fig.cap=cap, fig.height=plot_height, fig.width=plot_width}
-if (length(gene_feat_cols) > 0) {
+if (length(enh_feat_cols) > 0) {
 
   # print plots for every cell type in tabs
-  for (i in cell_types){
-    cat("####", i, '{.unlisted .unnumbered}', '\n', '<br>', '\n')
-    plot(es_plots[[i]])
-    cat('\n', '<br>', '\n\n')
-  }
-  cat("### {.unlisted .unnumbered}")
+  printTabbedPlots(es_plots, section_level = "###")
   
+  # figure caption
   cap <- paste("Effect size vs. predictor scores for all predictors for subsets of the data based on",
                "provided enhancer features")
   
 }
+```
+
+***
+
+# Correlation between predictors
+How well predictor scores correlate with each other for E-G pairs in the experimental data is
+investigated.
+```{r predCorMatrix}
+# create correlation matrix plots for all cell types
+corr_matrix_plots <- applyCellTypes(merged, .fun = plotPredCorMatrix,
+                                    pred_names_col = "pred_name_long", method = "spearman")
+
+# plot dimensions based on number of predictors
+n_pred <- n_distinct(pull(filter(merged, boolean == FALSE), pred_uid))
+dim <- 4 + (n_pred - 1) / 3
+
+# save correlation matrix plots to pdfs
+savePlotList(corr_matrix_plots, basename = "predictor_correlation.pdf", path = plotdir,
+             height = dim, width = dim)
+```
+
+```{r, results='asis', fig.cap=cap, fig.height=dim, fig.width=dim}
+# print plots for every cell type in tabs
+printTabbedPlots(corr_matrix_plots, section_level = "#")
+
+# figure caption
+cap <- paste("Correlation of scores between predictors for experimenta E-G pairs.")
 ```
 
 ***
@@ -700,25 +677,19 @@ Different features of the experimental data are investigated.
 ## Distance to TSS distribution {.tabset .tabset-pills}
 ```{r distToTSSDistr}
 # create distance to TSS distributions for all cell types
-dist_distr <- lapply(cell_types, FUN = plotDistanceDistribution, df = merged,
-                     dist = "baseline.distToTSS", pos_col = "Regulated", text_size = 13)
+dist_distr <- applyCellTypes(merged, .fun = plotDistanceDistribution,
+                             dist = "baseline.distToTSS", pos_col = pos_col, text_size = 13)
 
 # save plots to pdfs
-for (n in names(dist_distr)) {
-  ggsave(dist_distr[[n]], filename = file.path(plotdir, paste0(n, "_distToTSS_distribution.pdf")),
-         height = 5, width = 7, device = "pdf")
-}
+savePlotList(dist_distr, basename = "distToTSS_distribution.pdf", path = plotdir, height = 5,
+             width = 7)
 ```
 
 ```{r, results='asis', fig.cap=cap, fig.height=5, fig.width=7}
 # print plots for every cell type in tabs
-for (i in cell_types){
-  cat("###", i, '{.unlisted .unnumbered}', '\n', '<br>', '\n')
-  plot(dist_distr[[i]])
-  cat('\n', '<br>', '\n\n')
-}
-cat("## {.unlisted .unnumbered}")
-
+printTabbedPlots(dist_distr, section_level = "##")
+  
+# figure caption
 cap <- paste("Distance to TSS distributions for all E-G pairs in experimental data. E-G pairs are",
   "partitioned according to whether they were identified as enhancer-gene interactions (positives)",
   "or negatives.")
@@ -736,13 +707,13 @@ feature_cols <- grep(colnames(merged), pattern = "^enh_feature_.+$", value = TRU
 if (length(feature_cols > 0)) {
   
   # make upset plots from features overlapping experimentally tested enhancers for each cell type
-  overlap_plots <- lapply(cell_types, FUN = plotOverlappingFeatures, df = merged,
-                          feature_cols = feature_cols)
+  overlap_plots <- applyCellTypes(merged, .fun = plotOverlappingFeatures,
+                                  feature_cols = feature_cols)
   
-  # save plots
-  for (n in names(overlap_plots)) {
-    pdf(file.path(plotdir,  paste0(n, "_overlappingFeatures.pdf")), height = 5, width = 7, onefile = FALSE)
-    print(overlap_plots[[n]])
+  # save plots to pdfs
+  for (i in names(overlap_plots)) {
+    pdf(file.path(plotdir,  paste0(i, ".overlappingFeatures.pdf")), height = 5, width = 7)
+    print(overlap_plots[[i]])
     dev.off()
   }
 }
@@ -752,13 +723,9 @@ if (length(feature_cols > 0)) {
 if (length(feature_cols > 0)) {
   
   # print plots for every cell type in tabs
-  for (i in cell_types){
-    cat("###", i, '{.unlisted .unnumbered}', '\n', '<br>', '\n')
-    print(overlap_plots[[i]])
-    cat('\n', '<br>', '\n\n')
-  }
-  cat("## {.unlisted .unnumbered}")
-  
+  printTabbedPlots(overlap_plots, section_level = "##", plot_function = print)
+
+  # figure caption
   cap <- paste("Genomic features overlapping experimentally tested enhancers.")
   
 }

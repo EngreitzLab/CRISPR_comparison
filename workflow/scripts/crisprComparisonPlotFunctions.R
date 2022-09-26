@@ -2,17 +2,104 @@
 
 library(tidyverse)
 library(data.table)
+library(ggpubr)
+library(ggcorrplot)
 
 ## MAIN FUNCTIONS ==================================================================================
 
-# plot CRISPR E-G pairs overlapping prediction E-G pairs
-plotOverlaps <- function(df, cell_type = "combined"){
+# process merged data for benchmarking analyses
+processMergedData <- function(merged, pred_config, filter_valid_connections = TRUE,
+                              include_missing_predictions = TRUE, distToTSS_as_kb = TRUE) {
   
-  # extract data for the provided cell type
-  df_ct <- getCellTypeData(df, cell_type = cell_type)
+  # add unique identifiers to merged data
+  merged <- unite(merged, col = "pred_uid", pred_id, pred_col, sep = ".", remove = FALSE)
+  
+  # add long names and whether a predictor is boolean from pred_config to merged data
+  merged <- pred_config %>% 
+    select(pred_uid, boolean, pred_name_long) %>% 
+    left_join(x = merged, y = ., by = "pred_uid")
+  
+  # filter merged data for valid connections if specified
+  if (filter_valid_connections == TRUE) {
+    merged <- subset(merged, ValidConnection == "TRUE")
+  }
+  
+  # filter out CRE - gene pairs with missing predictions if specified
+  if (include_missing_predictions == FALSE) {
+    merged <- merged[merged$Prediction == 1, ]
+  }
+  
+  # convert distance to TSS baseline predictor to kb if specified
+  if (distToTSS_as_kb == TRUE) {
+    merged <- merged %>% 
+      mutate(pred_value = if_else(pred_uid == "baseline.distToTSS", true = pred_value / 1000,
+                                  false = pred_value)) %>% 
+      mutate(pred_name_long = if_else(pred_uid == "baseline.distToTSS",
+                                      true = "Distance to TSS (kb)", false = pred_name_long))
+  }
+  
+  return(merged)
+  
+}
+
+# process pred_config file for benchmarking analyses
+processPredConfig <- function(pred_config, merged,
+  config_cols = c("pred_id", "pred_col", "boolean", "alpha", "aggregate_function", "fill_value",
+                  "inverse_predictor", "pred_name_long", "color")) {
+  
+  # only retain relevatn columns TODO: replace this
+  pred_config <- pred_config[, ..config_cols]
+  
+  # add unique predictor identifier to pred_config
+  pred_config <- pred_config %>% 
+    unite(col = pred_uid, pred_id, pred_col, sep = ".", remove = FALSE)
+  
+  # filter pred_config for predictors also occurring in merged data
+  merged_pred_uid <- unique(paste(merged$pred_id, merged$pred_col, sep = "."))
+  pred_config <- filter(pred_config, pred_uid %in% merged_pred_uid)
+  
+  # create default baseline predictor configuration
+  baseline_preds <- c("distToTSS", "nearestTSS", "nearestGene")
+  baseline_preds_uid <- paste("baseline", baseline_preds, sep = ".")
+  baseline_pred_config <- data.table(
+    pred_uid = baseline_preds_uid,
+    pred_id = "baseline",
+    pred_col = baseline_preds,
+    boolean = c(FALSE, TRUE, TRUE),
+    alpha = c(1e4, 1, 1),
+    aggregate_function = c("mean", "max", "max"),
+    fill_value = c(Inf, 0, 0),
+    inverse_predictor = c(TRUE, FALSE, FALSE),
+    pred_name_long = c("Distance to TSS", "Nearest TSS", "Nearest Gene"),
+    color = c("#ffa600", "#595959", "#bebebe")
+  )
+  
+  # if no colors were set for any of the other predictors, set colors of baseline predictors to NA
+  if (all(is.na(pred_config$color))) {
+    baseline_pred_config$color <- NA_character_
+  }
+  
+  # config for baseline predictors can be set in pred_config, so only add the default values for
+  # those missing from pred_config
+  baseline_preds_to_add <- setdiff(baseline_pred_config$pred_uid, pred_config$pred_uid)
+  pred_config <- baseline_pred_config %>% 
+    filter(pred_uid %in% baseline_preds_to_add) %>% 
+    rbind(pred_config, .)
+  
+  # check that long predictor names are unique
+  if (any(table(pred_config$pred_name_long) > 1)) {
+    stop("'pred_name_long' in pred_config is not a unique identifier.", call. = FALSE)
+  }
+  
+  return(pred_config)
+  
+}
+
+# plot CRISPR E-G pairs overlapping prediction E-G pairs
+plotOverlaps <- function(merged, title = "E-G pairs in predictions part of CRISPR E-G universe") {
   
   # count number of total CRISPR E-G pairs and overlapping pairs per predictor
-  n_pairs <- df_ct %>% 
+  n_pairs <- merged %>% 
     group_by(pred_uid, pred_name_long) %>% 
     summarize(`Overlaps predictions` = sum(Prediction == 1),
               `Not in predictions` = sum(Prediction == 0),
@@ -23,7 +110,7 @@ plotOverlaps <- function(df, cell_type = "combined"){
   # plot number of CRISPR E-G pairs overlapping E-G pairs in predictions
   ggplot(n_pairs, aes(x = pred_name_long, y = pairs, fill = Overlaps)) +
     geom_bar(stat = "identity") +
-    labs(y = "E-G pairs", x = "Predictor", title = "CRISPR E-G pairs overlapping predictions") +
+    labs(y = "E-G pairs", x = "Predictor", title = title) +
     scale_fill_manual(values = c("Overlaps predictions" = "steelblue",
                                  "Not in predictions" = "darkgray")) +
     coord_flip() +
@@ -31,14 +118,11 @@ plotOverlaps <- function(df, cell_type = "combined"){
   
 }
 
-# compute PR curves for a given cell type (default: combined == all cells)
-calcPRCurves <- function(df, pred_config, pos_col, cell_type = "combined") {
-  
-  # extract data for the provided cell type
-  df_ct <- getCellTypeData(df, cell_type = cell_type)
+# compute PR curves for merged data
+calcPRCurves <- function(df, pred_config, pos_col) {
   
   # split into list for lapply
-  df_ct_split <- split(df_ct, f = df_ct$pred_uid)
+  df_split <- split(df, f = df$pred_uid)
   
   # get inverse predictors
   inverse_predictors <- pred_config %>% 
@@ -46,15 +130,15 @@ calcPRCurves <- function(df, pred_config, pos_col, cell_type = "combined") {
     deframe()
   
   # multiply inverse predictors by -1 so that higher value corresponds to higher score
-  inverse_predictors <- inverse_predictors[names(df_ct_split)]  # same as predictors for cell type
-  df_ct_split <- mapply(FUN = function(pred, inv_pred) {
+  inverse_predictors <- inverse_predictors[names(df_split)]  # same as predictors for cell type
+  df_split <- mapply(FUN = function(pred, inv_pred) {
     inv_multiplier <- ifelse(inv_pred, -1, 1)
     pred$pred_value <- pred$pred_value * inv_multiplier
     return(pred)
-  }, df_ct_split, inverse_predictors, SIMPLIFY = FALSE)
+  }, df_split, inverse_predictors, SIMPLIFY = FALSE)
   
   # compute precision-recall performance for each predictor
-  pr <- lapply(df_ct_split, FUN = function(p){
+  pr <- lapply(df_split, FUN = function(p){
     performance(prediction(p$pred_value, p[[pos_col]]), measure = "prec", x.measure = "rec")
   })
   
@@ -83,12 +167,21 @@ makePRSummaryTable <- function(pr_df, pred_config, min_sensitivity = 0.7) {
     select(pred_uid, pred_id, pred_col, inverse_predictor, pred_name_long) %>% 
     left_join(x = perf_summary, y = ., by = "pred_uid")
   
+  # set alpha to alpha at minimum sensitivity if threshold was set to NA
+  perf_summary <- perf_summary %>% 
+    left_join(select(pred_config, pred_uid, alpha), by = "pred_uid") %>% 
+    mutate(alpha_cutoff = if_else(is.na(alpha), alpha_at_min_sensitivity, alpha_cutoff),
+           alpha_at_cutoff = if_else(is.na(alpha), alpha_at_min_sensitivity, alpha_at_cutoff),
+           sensitivity_at_cutoff = if_else(is.na(alpha), sensitivity_at_min_sensitivity, sensitivity_at_cutoff),
+           precision_at_cutoff = if_else(is.na(alpha), precision_at_min_sensitivity, precision_at_cutoff)) %>% 
+    select(-alpha)
+  
   return(perf_summary)
   
 }
 
 # make a PR curve plot for a set of provided predictors
-makePRCurvePlot <- function(pr_df, pred_config, pct_pos, min_sensitivity = 0.7,
+makePRCurvePlot <- function(pr_df, pred_config, n_pos, pct_pos, min_sensitivity = 0.7,
                             plot_name = "PRC full experimental data", line_width = 1, 
                             point_size = 3, text_size = 15, colors = NULL) {
   
@@ -111,64 +204,121 @@ makePRCurvePlot <- function(pr_df, pred_config, pct_pos, min_sensitivity = 0.7,
   # get precision and recall for boolean predictor at alpha 1
   pr_bool <- filter(pr_bool, alpha == 1)
   
+  # create default colors if none were specified
+  if (is.null(colors)) {
+    colors <- scales::hue_pal()(nrow(pred_config))
+  }
+  
+  # separate predictors into those with a set color and those with NA (useful against overplotting)
+  na_col <- names(colors)[is.na(colors)]
+  pr_quant_col <- filter(pr_quant, !pred_name_long %in% na_col)
+  pr_quant_na_col <- filter(pr_quant, pred_name_long %in% na_col)
+  pr_bool_col <- filter(pr_bool, !pred_name_long %in% na_col)
+  pr_bool_na_col <- filter(pr_bool, pred_name_long %in% na_col)
+  pr_threshold_col <- filter(pr_threshold, !pred_name_long %in% na_col)
+  pr_threshold_na_col <- filter(pr_threshold, pred_name_long %in% na_col)
+  
+  # set NA colors to a lighter gray than the ggplot default
+  colors[is.na(colors)] <- "gray66"
+  
   # create PRC plot (caution, this assumes that there at least 1 quant and 1 bool predictor!)
-  p <- ggplot(pr_quant, aes(x = recall, y = precision, color = pred_name_long)) +
-    geom_line(size = line_width) +
-    geom_point(data = pr_threshold, size = point_size) +
-    geom_point(data = pr_bool, size = point_size) +
+  ggplot(pr_quant, aes(x = recall, y = precision, color = pred_name_long)) +
+    geom_line(data = pr_quant_na_col, size = line_width) +
+    geom_point(data = pr_threshold_na_col, size = point_size) +
+    geom_point(data = pr_bool_na_col, size = point_size) +
+    geom_line(data = pr_quant_col, size = line_width) +
+    geom_point(data = pr_threshold_col, size = point_size) +
+    geom_point(data = pr_bool_col, size = point_size) +
     geom_hline(yintercept = pct_pos, linetype = "dashed", color = "black") +
-    labs(title = plot_name, x  = "Recall", y = "Precision", color = "Predictor") + 
+    labs(title = plot_name, x  = paste0("Recall (n=", n_pos, ")"), y = "Precision",
+         color = "Predictor") + 
     coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) + 
+    scale_color_manual(values = colors) +
     theme_bw() +
     theme(text = element_text(size = text_size))
   
-  # add custom colors if any are provided
-  if (!is.null(colors)) {
-    p <- p + 
-      scale_color_manual(values = colors)
-  }
-  
-  # print plot
-  p
-  
 }
 
-# make scatter plots of one column (y) against all predictors (x) (default: combined == all cells)
-predScatterPlots <- function(df, y_col, pred_names_col = "pred_uid", point_size = 2,
-                             text_size = 13, alpha_value = 1, cell_type = "combined", ncol = NULL,
-                             nrow = NULL) {
+# plot predictor scores vs effect sizes
+plotPredictorsVsEffectSize <- function(merged, pos_col = "Regulated", pred_names_col = "pred_uid",
+                                       corr_groups = pos_col, point_size = 2, text_size = 13,
+                                       title = "Predictor scores vs. CRISPRi effect sizes",
+                                       alpha_value = 1, include_boolean_preds = FALSE,
+                                       cor_method = "spearman", ncol = NULL, nrow = NULL,
+                                       label.x.npc = 0.75) {
   
-  # get data for specified cell type
-  df_ct <- getCellTypeData(df, cell_type = cell_type)
+  # remove boolean predictors if specified
+  if (include_boolean_preds == FALSE) {
+    if ("boolean" %in% colnames(merged)) {
+      merged <- subset(merged, boolean == FALSE)
+    } else {
+      warning("'boolean' column not in 'merged' data frame, can't filter for boolean predictors",
+              call. = FALSE)
+    }
+  }
   
-  # plot each predictor against effect size
-  ggplot(df_ct, aes(x = pred_value, y = get(y_col), color = scatterplot_color)) +
-    facet_wrap(~get(pred_names_col), scales = "free", ncol = ncol, nrow = nrow) +
-    geom_point(size = point_size, alpha = alpha_value) +
-    scale_color_manual(values = c("Activating" = "red", "Repressive" = "blue", 
-                                  "Not Significant" = "gray")) +
-    labs(title = paste("Predictors vs", y_col), x = "Predictor value", y = y_col, color = "") +
-    scale_x_continuous(labels = scales::scientific) +
-    theme_bw() +
-    theme(legend.position = "bottom", text = element_text(size = text_size))
+  # set color based on column identifying positive CRISPRi pairs
+  if (!is.null(pos_col)) {
+    values <- sort(unique(merged[[pos_col]]))
+    colors <- structure(c("darkgray", "steelblue"), names = as.character(values))
+  } else {
+    colors <- NULL
+  }
+  
+  
+  # create basic effect size vs predictors scatter plots
+  p <- makeScatterPlots(merged, x_col = "pred_value", y_col = "EffectSize", color_col = pos_col,
+                        x_lab = "Predictor score", y_lab = "CRISPRi effect size",
+                        title = title, colors = colors,
+                        pred_names_col = pred_names_col, point_size = point_size,
+                        text_size = text_size, alpha_value = alpha_value, ncol = ncol, nrow = nrow)
+  
+  # add linear model fit and correlation coefficient
+  if (is.null(corr_groups)) {
+    p + 
+      geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = "black") +
+      stat_cor(aes(color = NULL, label = ..r.label..), method = cor_method, cor.coef.name = "rho",
+               label.y.npc = "top", label.x.npc = label.x.npc, r.accuracy = 0.01,
+               show.legend = FALSE)
+  } else {
+    p + 
+      geom_smooth(aes(color = !!sym(corr_groups)), method = "lm", formula = y ~ x, se = FALSE) +
+      stat_cor(aes(label = ..r.label..), method = cor_method, cor.coef.name = "rho",
+               label.y.npc = "top", label.x.npc = label.x.npc, r.accuracy = 0.01,
+               show.legend = FALSE)
+  }
   
 }
 
 # make violin plots showing scores for each predictor as a function of experimental outcome
-plotPredictorsVsExperiment <- function(df, pos_col = "Regulated", pred_names_col = "pred_uid",
-                                       text_size = 13, cell_type = "combined", ncol = NULL,
+plotPredictorsVsExperiment <- function(merged, pos_col = "Regulated", pred_names_col = "pred_uid",
+                                       text_size = 13, include_boolean_preds = FALSE, ncol = NULL,
                                        nrow = NULL) {
   
-  # get data for specified cell type
-  df_ct <- getCellTypeData(df, cell_type = cell_type)
+  # remove boolean predictors if specified
+  if (include_boolean_preds == FALSE) {
+    if ("boolean" %in% colnames(merged)) {
+      merged <- subset(merged, boolean == FALSE)
+    } else {
+      warning("'boolean' column not in 'merged' data frame, can't filter for boolean predictors",
+              call. = FALSE)
+    }
+  }
+  
+  # set color based on column identifying positive CRISPRi pairs
+  values <- sort(unique(merged[[pos_col]]))
+  colors <- structure(c("darkgray", "steelblue"), names = as.character(values))
+  
+  # convert column identifying positive CRISPR hits from string to symbol for ggplot
+  pos_col <- sym(pos_col)
   
   # plot scores for each predictor as a function of experimental outcome
-  ggplot(df_ct, aes(x = get(pos_col), y = pred_value, color = get(pos_col), fill = get(pos_col))) +
+  ggplot(merged, aes(x = !!pos_col, y = pred_value, color = !!pos_col, fill = !!pos_col)) +
     facet_wrap(~get(pred_names_col), scales = "free", ncol = ncol, nrow = nrow) +
     geom_violin() +
     geom_boxplot(width = 0.1, outlier.shape = NA, color = "black", fill = "NA") +
-    scale_color_manual(values = c("darkgray", "steelblue")) +
-    scale_fill_manual(values = c("darkgray", "steelblue")) +
+    scale_color_manual(values = colors) +
+    scale_fill_manual(values = colors) +
     labs(title = "Predictors vs experimental outcome", x = "Experimental E-G pair",
          y = "Predictor value (sqrt)") +
     scale_y_sqrt() +
@@ -178,24 +328,20 @@ plotPredictorsVsExperiment <- function(df, pos_col = "Regulated", pred_names_col
 }
 
 # plot distance distributions for experimental positives and negatives
-plotDistanceDistribution <- function(df, dist = "baseline.distToTSS", pos_col = "Regulated",
-                                     cell_type = "combined", text_size = 13) {
-  
-  # get data for specified cell type
-  df_ct <- getCellTypeData(df, cell_type = cell_type)
+plotDistanceDistribution <- function(merged, dist = "baseline.distToTSS", pos_col = "Regulated",
+                                     text_size = 13) {
   
   # get data for distance and add label for faceting
-  dist_data <- df_ct %>% 
+  dist_data <- merged %>% 
     filter(pred_uid == dist) %>% 
     mutate(label = if_else(get(pos_col) == TRUE, true = "Positives", false = "Negatives")) %>% 
-    mutate(label = factor(label, levels = c("Positives", "Negatives"))) %>% 
-    mutate(dist_kb = pred_value / 1000)
+    mutate(label = factor(label, levels = c("Positives", "Negatives")))
   
   # plot distance distribution for all pairs in experimental data
-  ggplot(dist_data, aes(x = dist_kb, fill = label)) +
+  ggplot(dist_data, aes(x = pred_value, fill = label)) +
     facet_wrap(~label, ncol = 1, scales = "free_y") +
     geom_histogram(binwidth = 10) +
-    labs(x = "Distance (kb)") +
+    labs(x = "Distance to TSS (kb)") +
     scale_fill_manual(values = c("Positives" = "steelblue", "Negatives" = "darkgray")) +
     theme_bw() +
     theme(legend.position = "none", text = element_text(size = text_size))
@@ -203,13 +349,10 @@ plotDistanceDistribution <- function(df, dist = "baseline.distToTSS", pos_col = 
 }
 
 # make an upset plot of overlapping features for a given cell type
-plotOverlappingFeatures <- function(df, feature_cols, cell_type = "combined") {
-  
-  # get data for specified cell type
-  df_ct <- getCellTypeData(df, cell_type = cell_type)
+plotOverlappingFeatures <- function(merged, feature_cols) {
   
   # create table with unique enhancers and overlapping features
-  enh_features <- df_ct %>% 
+  enh_features <- merged %>% 
     mutate(enh_id = paste0(chrom, ":", chromStart, "-", chromEnd)) %>% 
     select(enh_id, all_of(feature_cols)) %>% 
     distinct() %>% 
@@ -226,33 +369,141 @@ plotOverlappingFeatures <- function(df, feature_cols, cell_type = "combined") {
   
 }
 
+# plot correlation between predictors
+plotPredCorMatrix <- function(merged, pred_names_col = "pred_uid", include_boolean_preds = FALSE,
+                              method = c("spearman", "pearson", "kendall"),
+                              title = "Correlation of predictor scores") {
+  
+  # parse method argument
+  method <- match.arg(method)
+  
+  # remove boolean predictors if specified
+  if (include_boolean_preds == FALSE) {
+    if ("boolean" %in% colnames(merged)) {
+      merged <- subset(merged, boolean == FALSE)
+    } else {
+      warning("'boolean' column not in 'merged' data frame, can't filter for boolean predictors",
+              call. = FALSE)
+    }
+  }
+  
+  # extract predictor scores and transform to wide format
+  pred_scores <- merged %>% 
+    select(name, all_of(pred_names_col), pred_value) %>% 
+    pivot_wider(names_from = all_of(pred_names_col), values_from = pred_value)
+  
+  # compute correlation coefficients between predictors
+  cor_matrix <- cor(select(pred_scores, -name), method = method)
+  
+  # plot correlation matrix for scores of different predictors
+  ggcorrplot(cor_matrix, hc.order = TRUE, type = "lower", lab = TRUE, title = title)
+  
+}
+
 ## Make plots for subsets of the data based on gene or enhancer features ---------------------------
 
+# count the number of positive and negative pairs per gene and enhancer feature
+countPairsFeatures <- function(merged, feature_cols_pattern = "^(gene|enh)_feature_.+$",
+                               pos_col = "Regulated") {
+  
+  # get all feature columns
+  feature_cols <- grep(colnames(merged), pattern = feature_cols_pattern, value = TRUE)
+  
+  # count the number of pairs per feature column
+  output <- merged %>% 
+    select(name, all_of(c(pos_col, feature_cols))) %>% 
+    distinct() %>% 
+    pivot_longer(cols = all_of(feature_cols), names_to = "feature", values_to = "value",
+                 values_transform = as.character) %>% 
+    group_by(feature, value) %>%
+    summarize("TRUE" = sum(get(pos_col) == TRUE),
+              "FALSE" = sum(get(pos_col) == FALSE),
+              .groups = "drop") %>% 
+    pivot_longer(cols = c("TRUE", "FALSE"), names_to = "outcome", values_to = "pairs") %>% 
+    separate(col = feature, into = c("feature_type", "feature"), sep = "_feature_")
+  
+  return(output)
+  
+}
+
+# plot the number of pairs grouped by feature types (if feature_types has names, the names will be
+# used for pretty plots)
+plotPairsFeatures <- function(n_pairs_features,
+                              feature_types = c("Gene" = "gene", "Enhancer" = "enh")) {
+  
+  # split n_pairs_features by feature types
+  n_pairs_features <- split(n_pairs_features, f = n_pairs_features$feature_type)
+  
+  # order and rename feature types (if specified)
+  n_pairs_features <- n_pairs_features[feature_types]
+  if (!is.null(names(feature_types))) names(n_pairs_features) <- names(feature_types)
+  
+  # create titles for plots
+  titles <- paste(names(n_pairs_features), "features")
+  
+  # plot number of pairs per feature type
+  feat_pair_plots <- mapply(FUN = function(set, title) {
+    ggplot(set, aes(x = value, y = pairs, fill = as.logical(outcome))) +
+      facet_wrap(~feature) +
+      geom_bar(stat = "identity") +
+      labs(title = title, y = "Number of E-G pairs", fill = pos_col) +
+      scale_fill_manual(values = c("FALSE" = "darkgray", "TRUE" = "steelblue")) +
+      theme_bw() +
+      theme(axis.title.x = element_blank(),
+            axis.text.x = element_text(angle = 45, hjust = 1))
+  }, set = n_pairs_features, title = titles, SIMPLIFY = FALSE)
+  
+  return(feat_pair_plots)
+  
+}
+
 # calculate and plot PR curves for a given subset
-makePRCurveSubset <- function(df, subset_col, pred_config, pos_col, min_sensitivity = 0.7,
+makePRCurveSubset <- function(merged, subset_col, pred_config, pos_col, min_sensitivity = 0.7,
                               line_width = 1, point_size = 3, text_size = 15, nrow = 1,
                               colors = NULL) {
   
   # split df into subsets based on provided column
-  df_split <- split(df, f = df[[subset_col]])
+  merged_split <- split(merged, f = merged[[subset_col]])
+  subsets <- names(merged_split)  # used later
+  
+  # get subsets that do not contain both positives and negatives
+  one_class_only <- vapply(merged_split, FUN.VALUE = logical(1), FUN = function(x){
+    n_distinct(x$Regulated) != 2 
+  })
+  
+  # filter out any subsets that do not have both
+  if (all(one_class_only)) {
+    stop("No subsets contain both positive and negatives.", call. = FALSE)
+  } else if (any(one_class_only)) {
+    warning("Not all subsets contain both positive and negatives. These will be removed from plots.",
+            call. = FALSE)
+    merged_split <- merged_split[!one_class_only]
+  } else {
+    merged_split <- merged_split
+  }
   
   # compute PR curve
-  prc <- lapply(df_split, FUN = calcPRCurves, pred_config = pred_config, pos_col = pos_col)
+  prc <- lapply(merged_split, FUN = calcPRCurves, pred_config = pred_config, pos_col = pos_col)
   
-  # calculate percentage of positives for all splits
-  pct_pos <- lapply(df_split, FUN = calcPctPos, pos_col = pos_col)
+  # calculate number and percentage of positives for all splits
+  n_pos <- lapply(merged_split, FUN = calcNPos, pos_col = pos_col)
+  pct_pos <- lapply(merged_split, FUN = calcPctPos, pos_col = pos_col)
   
   # create plot titles based on feature name and number of pairs for that feature
   feature_name <- sub(".+_feature_", "", subset_col)
-  pairs <- vapply(df_split, FUN = function(x) length(unique(x$name)), FUN.VALUE = integer(1))
+  pairs <- vapply(merged_split, FUN = function(x) length(unique(x$name)), FUN.VALUE = integer(1))
   titles <- paste0(feature_name, " = " , names(prc), " (", pairs, " pairs)")
   
   # plot PR curves
-  pr_plots <- mapply(FUN = makePRCurvePlot, pr_df = prc, pct_pos = pct_pos, plot_name = titles, 
+  pr_plots <- mapply(FUN = makePRCurvePlot, pr_df = prc, n_pos = n_pos, pct_pos = pct_pos, plot_name = titles, 
                      MoreArgs = list(pred_config = pred_config, min_sensitivity = min_sensitivity,
                                      line_width = line_width, point_size = point_size,
                                      text_size = text_size, colors = colors),
                      SIMPLIFY = FALSE)
+  
+  # add empty plots for subsets without both positives and negatives
+  empty <- setdiff(subsets, names(pr_plots))
+  for (i in empty) pr_plots[[i]] <- ggplot(NULL)
   
   # create title for this comparison
   title <- ggdraw() + 
@@ -267,7 +518,7 @@ makePRCurveSubset <- function(df, subset_col, pred_config, pos_col, min_sensitiv
 
 # calculate and plot PR curves for several subset columns and arrange plots into one figure for one
 # cell type
-makePRCurveSubsets <- function(df, subset_cols, pred_config, pos_col, cell_type = "combined",
+makePRCurveSubsets <- function(merged, subset_cols, pred_config, pos_col, cell_type = "combined",
                                min_sensitivity = 0.7, line_width = 1, point_size = 3,
                                text_size = 15, nrow = 1, colors = NULL) {
   
@@ -276,11 +527,8 @@ makePRCurveSubsets <- function(df, subset_cols, pred_config, pos_col, cell_type 
     return(NULL)
   }
   
-  # extract data for the provided cell type
-  df_ct <- getCellTypeData(df, cell_type = cell_type)
-  
   # create PR curve plots for each subset
-  pr_plots <- lapply(subset_cols, FUN = makePRCurveSubset, df = df_ct,
+  pr_plots <- lapply(subset_cols, FUN = makePRCurveSubset, merged = merged,
                      pred_config = pred_config, pos_col = pos_col,
                      min_sensitivity = min_sensitivity, line_width = line_width,
                      point_size = point_size, text_size = text_size, nrow = nrow, colors = colors)
@@ -291,42 +539,32 @@ makePRCurveSubsets <- function(df, subset_cols, pred_config, pos_col, cell_type 
 }
 
 # make violin plots showing scores for each predictor vs experimental outcome for a given subset
-plotPredVsExperimentSubset <- function(df, subset_col, pos_col, pred_names_col = "pred_uid",
+plotPredVsExperimentSubset <- function(merged, subset_col, pos_col, pred_names_col = "pred_uid",
                                        text_size = 13) {
   
-  # get feature name for title
-  feature_name <- sub(".+_feature_", "", subset_col)
-  
   # plot scores for each predictor as a function of experimental outcome
-  ggplot(df, aes(x = get(pos_col), y = pred_value, color = get(pos_col), fill = get(pos_col))) +
-    facet_grid(get(pred_names_col) ~ get(subset_col), scales = "free") +
-    geom_violin() +
-    geom_boxplot(width = 0.1, outlier.shape = NA, color = "black", fill = "NA") +
-    scale_color_manual(values = c("darkgray", "steelblue")) +
-    scale_fill_manual(values = c("darkgray", "steelblue")) +
-    labs(title = feature_name, x = "Experimental E-G pair",
-         y = "Predictor value (sqrt)") +
-    scale_y_sqrt() +
-    theme_bw() +
-    theme(legend.position = "none", text = element_text(size = text_size))
+  p <- plotPredictorsVsExperiment(merged, pos_col = pos_col, pred_names_col = pred_names_col,
+                                  text_size = text_size)
+  
+  # change title and add faceting based on subset column
+  p +
+    labs(title = sub(".+_feature_", "", subset_col)) +
+    facet_grid(get(pred_names_col) ~ get(subset_col), scales = "free")
   
 }
 
 # make violin plots showing scores for each predictor vs experimental outcome for a given subset
-plotPredVsExperimentSubsets <- function(df, subset_cols, pos_col, cell_type = "combined",
-                                        pred_names_col = "pred_uid", text_size = 13) {
+plotPredVsExperimentSubsets <- function(merged, subset_cols, pos_col, pred_names_col = "pred_uid",
+                                        text_size = 13, label.x.npc = 0.5) {
   
   # return NULL if no subsets are available
   if (length(subset_cols) == 0) {
     return(NULL)
   }
   
-  # extract data for the provided cell type
-  df_ct <- getCellTypeData(df, cell_type = cell_type)
-  
   # create predictor vs experiment plots for each subset
-  pe_plots <- lapply(subset_cols, FUN = plotPredVsExperimentSubset, df = df_ct, pos_col = pos_col,
-                     pred_names_col = pred_names_col, text_size = text_size)
+  pe_plots <- lapply(subset_cols, FUN = plotPredVsExperimentSubset, merged = merged,
+                     pos_col = pos_col, pred_names_col = pred_names_col, text_size = text_size)
   
   # create one figure with all plots
   plot_grid(plotlist = pe_plots, nrow = length(subset_cols))
@@ -334,59 +572,146 @@ plotPredVsExperimentSubsets <- function(df, subset_cols, pos_col, cell_type = "c
 }
 
 # make violin plots showing scores for each predictor vs experimental outcome for a given subset
-predScatterPlotsSubset <- function(df, subset_col, y_col, pred_names_col = "pred_uid",
-                                   point_size = 2, text_size = 13, alpha_value = 1) {
-  
-  # get feature name for title
-  feature_name <- sub(".+_feature_", "", subset_col)
+predVsEffectSizeSubset <- function(merged, subset_col, pos_col, pred_names_col = "pred_uid",
+                                   corr_groups = pos_col, point_size = 2, text_size = 13,
+                                   alpha_value = 1, label.x.npc = 0.75) {
   
   # plot each predictor against effect size for the given subset
-  ggplot(df, aes(x = pred_value, y = get(y_col), color = scatterplot_color)) +
-    facet_grid(get(subset_col) ~ get(pred_names_col), scales = "free") +
-    geom_point(size = point_size, alpha = alpha_value) +
-    scale_color_manual(values = c("Activating" = "red", "Repressive" = "blue", 
-                                  "Not Significant" = "gray")) +
-    labs(title = feature_name, x = "Predictor value", y = y_col, color = "") +
-    scale_x_continuous(labels = scales::scientific) +
-    theme_bw() +
-    theme(legend.position = "bottom", text = element_text(size = text_size))
+  p <- plotPredictorsVsEffectSize(merged, pos_col = pos_col, pred_names_col = pred_names_col,
+                                  corr_groups = corr_groups, point_size = point_size,
+                                  text_size = text_size, alpha_value = alpha_value,
+                                  label.x.npc = label.x.npc)
+  
+  # change title and add faceting based on subset column
+  p +
+    labs(title = sub(".+_feature_", "", subset_col)) +
+    facet_grid(get(subset_col) ~ get(pred_names_col), scales = "free")
   
 }
 
 # make violin plots showing scores for each predictor vs experimental outcome for a given subset
-predScatterPlotsSubsets <- function(df, subset_cols, y_col, cell_type = "combined",
-                                    pred_names_col = "pred_uid", point_size = 2, text_size = 13,
-                                    alpha_value = 1) {
+predVsEffectSizeSubsets <- function(merged, subset_cols, pos_col, pred_names_col = "pred_uid",
+                                    corr_groups = pos_col, point_size = 2, text_size = 13,
+                                    alpha_value = 1, label.x.npc = 0.75) {
   
   # return NULL if no subsets are available
   if (length(subset_cols) == 0) {
     return(NULL)
   }
   
-  # extract data for the provided cell type
-  df_ct <- getCellTypeData(df, cell_type = cell_type)
-  
   # create predictor vs experiment scatter plots for each subset
-  sc_plots <- lapply(subset_cols, FUN = predScatterPlotsSubset, df = df_ct, y_col = y_col,
-                     pred_names_col = pred_names_col, point_size = point_size,
-                     text_size = text_size, alpha_value = alpha_value)
+  es_plots <- lapply(subset_cols, FUN = predVsEffectSizeSubset, merged = merged, pos_col = pos_col,
+                     pred_names_col = pred_names_col, corr_groups = corr_groups,
+                     point_size = point_size, text_size = text_size, alpha_value = alpha_value,
+                     label.x.npc = label.x.npc)
   
   # create one figure with all plots
-  plot_grid(plotlist = sc_plots, nrow = length(subset_cols))
+  plot_grid(plotlist = es_plots, nrow = length(subset_cols))
   
 }
 
 ## HELPER FUNCTIONS ================================================================================
 
-# get data for a specified cell type or all if cell_type == "combined"
-getCellTypeData <- function(df, cell_type) {
+# apply analyses across all cell types in merged data ----------------------------------------------
+
+# get all cell types in merged data. if there are multiple cell types and if combined = TRUE add
+# "combined" to include a set of all cell types combined
+getCellTypes <- function(merged, cell_types_col = "ExperimentCellType", combined = TRUE) {
   
-  if (cell_type != "combined") {
-    df <- subset(df, ExperimentCellType == cell_type)
-  } 
+  # get all cell types in merged data (remove any NAs)
+  cell_types <- unique(merged[[cell_types_col]])
+  cell_types <- cell_types[!is.na(cell_types)]
+  cell_types <- structure(as.list(cell_types), names = cell_types)
   
-  return(df)
+  # add combined set if specified
+  if (length(cell_types) > 1 & combined == TRUE) {
+    cell_types <- c(cell_types, list(combined = as.character(cell_types)))
+  }
+  
+  return(cell_types)
+  
 }
+
+# get data for a specified cell type or all if cell_type == "combined"
+getCellTypeData <- function(df, cell_type, cell_types_col = "ExperimentCellType") {
+  df[df[[cell_types_col]] %in% cell_type, ]
+}
+
+# helper function to apply a function to one cell type in merged data
+applyCellType <- function(cell_type, merged, .fun, ..., cell_types_col = "ExperimentCellType") {
+  merged_cell_type <- getCellTypeData(merged, cell_type = cell_type, cell_types_col = cell_types_col)
+  .fun(merged_cell_type, ...)
+}
+
+# simple wrapper to apply a function to all cell types in merged data
+applyCellTypes <- function(merged, .fun, ..., cell_types_col = "ExperimentCellType",
+                           combined = TRUE) {
+  
+  # get all cell types in merged data
+  cell_types <- getCellTypes(merged, cell_types_col = cell_types_col, combined = combined)
+  
+  # apply function to all cell types
+  lapply(cell_types, FUN = applyCellType, merged = merged, .fun = .fun, ...)
+  
+}
+
+# plotting functions -------------------------------------------------------------------------------
+
+# make scatter plots of two columns (e.g. effect size vs predictor score) across all predictors
+makeScatterPlots <- function(df, x_col, y_col, color_col = NULL, x_lab = NULL, y_lab = NULL,
+                             title = NULL, colors = NULL, pred_names_col = "pred_uid",
+                             point_size = 2, text_size = 13, alpha_value = 1, ncol = NULL,
+                             nrow = NULL) {
+  
+  # create labels and title based on input parameters
+  if (is.null(x_lab)) x_lab <- x_col
+  if (is.null(y_lab)) y_lab <- y_col
+  if (is.null(title)) title <- paste(x_col, "vs", y_col)
+  
+  # convert column names to symbols for ggplot
+  x_col <- sym(x_col)
+  y_col <- sym(y_col)
+  if (!is.null(color_col)) color_col <- sym(color_col)
+  
+  # plot x_col vs y_col across predictors
+  p <- ggplot(df, aes(x = !!x_col, y = !!y_col, color = !!color_col)) +
+    facet_wrap(as.formula(paste("~", pred_names_col)), scales = "free", ncol = ncol, nrow = nrow) +
+    geom_point(size = point_size, alpha = alpha_value) +
+    labs(title = title, x = x_lab, y = y_lab) +
+    theme_bw() +
+    theme(legend.position = "bottom", text = element_text(size = text_size))
+  
+  # set colors if provided
+  if (!is.null(colors)) {
+    p <- p + scale_color_manual(values = colors)
+  }
+  
+  return(p)
+  
+}
+
+# save a list of plots to output files (... can be any argument for ggsave)
+savePlotList <- function(plot_list, basename, ...) {
+  
+  # output filenames for plots
+  outfiles <- paste(names(plot_list), basename, sep = ".")
+  
+  # save list of plots to output files
+  invisible(mapply(FUN = ggsave, outfiles, plot_list, MoreArgs = list(...)))
+  
+}
+
+# print plot a plot list with a tab per plot
+printTabbedPlots <- function(plots, section_level = "#", plot_function = plot) {
+  for (i in names(plots)){
+    cat(paste0(section_level, "#"), i, '{.unlisted .unnumbered}', '\n', '<br>', '\n')
+    plot_function(plots[[i]])
+    cat('\n', '<br>', '\n\n')
+  }
+  cat(section_level, "{.unlisted .unnumbered}")
+}
+
+# other helper functions ---------------------------------------------------------------------------
 
 # add label for each pair based on whether it's significant and activates or represses it's target
 labelPairs <- function(df, sig_col = "Significant") {
@@ -604,14 +929,19 @@ addPredictionClassLabels <- function(df, perf_summary, pos_col = "Regulated") {
 #   return(df)
 # }
 
-# compute the number of positives for a given cell type (default: combined == all cells)
-calcPctPos <- function(df, pos_col, cell_type = "combined") {
+# compute the fraction of experimental positives
+calcPctPos <- function(df, pos_col = "Regulated") {
+  mean(df[[pos_col]])
+}
+
+# compute number and fractions of experimental positives
+calcNPos <- function(df, pos_col = "Regulated") {
   
-  # extract data for the provided cell type
-  df_ct <- getCellTypeData(df, cell_type = cell_type)
+  expt_pairs <- df %>%
+    select(chrom, chromStart, chromEnd, measuredGeneSymbol, all_of(pos_col)) %>% 
+    distinct()
   
-  # compute percentage of positives
-  mean(df_ct[[pos_col]])
+  sum(expt_pairs[[pos_col]])
   
 }
 
@@ -670,26 +1000,3 @@ get_alpha_min <- function(merged, predictor, inverse = FALSE) {
     summarize(alpha = if_else(inverse == TRUE, max(pred_value), min(pred_value))) %>% 
     pull(alpha)
 }
-
-## DEPRECATED ======================================================================================
-
-# # make jitter plots showing scores for each predictor as a function of experimental outcome
-# plotPredictorsVsExperiment <- function(df, pos_col = "Regulated", pred_names_col = "pred_uid",
-#                                        point_size = 2, text_size = 13, cell_type = "combined") {
-#   
-#   # get data for specified cell type
-#   df_ct <- getCellTypeData(df, cell_type = cell_type)
-#   
-#   # plot scores for each predictor as a function of experimental outcome
-#   ggplot(df_ct, aes(x = get(pos_col), y = pred_value, color = get(pos_col))) +
-#     facet_wrap(~get(pred_names_col), scales = "free") +
-#     geom_jitter(size = point_size) +
-#     geom_boxplot(fill = NA, outlier.shape = NA, color = "black") +
-#     scale_color_manual(values = c("darkgray", "steelblue")) +
-#     labs(title = "Predictors vs experimental outcome", x = "Experimental E-G pair",
-#          y = "Predictor value") +
-#     scale_y_log10() +
-#     theme_bw() +
-#     theme(legend.position = "none", text = element_text(size = text_size))
-#   
-# }

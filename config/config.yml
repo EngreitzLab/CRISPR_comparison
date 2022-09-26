@@ -10,7 +10,7 @@ comparisons:
     pred_config: "resources/example/pred_config.txt"
     cell_type_mapping: 
       ABC: "resources/example/ABC_cell_type_mapping.txt"
-    dist_bins_kb: [0, 20, 50, 100, 2500]
+    dist_bins_kb: [0, 20, 100, 2500]
     gene_features: Null
     enh_features: Null
     enh_assays: Null

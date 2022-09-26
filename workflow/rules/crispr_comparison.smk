@@ -67,6 +67,8 @@ rule mergePredictionsWithExperiment:
     cell_type_mapping = get_cell_type_mappings
   output:
     merged = temp("results/{comparison}/expt_pred_merged.txt.gz")
+  params:
+    pos_col = "Regulated"
   log: "results/{comparison}/logs/mergePredictionsWithExperiment.log"
   conda: "../envs/r_crispr_comparison.yml"
   resources:
@@ -99,6 +101,7 @@ rule comparePredictionsToExperiment:
   params:
      pred_names = lambda wildcards: config["comparisons"][wildcards.comparison]["pred"].keys(),
      include_missing_predictions = True,
+     pos_col = "Regulated",
      min_sensitivity = 0.7,
      dist_bins_kb = lambda wildcards: config["comparisons"][wildcards.comparison]["dist_bins_kb"]
   conda: "../envs/r_crispr_comparison.yml"

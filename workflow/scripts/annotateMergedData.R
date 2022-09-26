@@ -202,7 +202,7 @@ if (is.null(c(gene_features_files, enh_features_files, enh_assays_files))) {
 
   # write to new output file
   message("Writing to output file...")
-  readr::write_tsv(merged, file = snakemake@output[[1]])
+  fwrite(merged, file = snakemake@output[[1]], sep = "\t", na = "NA")
 
   message("Done!")
 
