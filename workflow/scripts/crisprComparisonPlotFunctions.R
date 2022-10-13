@@ -47,12 +47,11 @@ processPredConfig <- function(pred_config, merged,
   config_cols = c("pred_id", "pred_col", "boolean", "alpha", "aggregate_function", "fill_value",
                   "inverse_predictor", "pred_name_long", "color")) {
   
-  # only retain relevatn columns TODO: replace this
+  # only retain columns relevant for CRISPR benchmarking
   pred_config <- pred_config[, ..config_cols]
   
   # add unique predictor identifier to pred_config
-  pred_config <- pred_config %>% 
-    unite(col = pred_uid, pred_id, pred_col, sep = ".", remove = FALSE)
+  pred_config <- unite(pred_config, col = pred_uid, pred_id, pred_col, sep = ".", remove = FALSE)
   
   # filter pred_config for predictors also occurring in merged data
   merged_pred_uid <- unique(paste(merged$pred_id, merged$pred_col, sep = "."))
@@ -66,7 +65,7 @@ processPredConfig <- function(pred_config, merged,
     pred_id = "baseline",
     pred_col = baseline_preds,
     boolean = c(FALSE, TRUE, TRUE),
-    alpha = c(1e4, 1, 1),
+    alpha = c(NA, 1, 1),
     aggregate_function = c("mean", "max", "max"),
     fill_value = c(Inf, 0, 0),
     inverse_predictor = c(TRUE, FALSE, FALSE),
