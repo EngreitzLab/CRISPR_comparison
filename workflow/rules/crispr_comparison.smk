@@ -8,41 +8,18 @@ def get_pred_config(wildcards):
     pred_config = "results/" + comparison + "/pred_config.txt"
   return pred_config
 
-# get cell type mapping files if they are specified in config
-def get_cell_type_mappings(wildcards):
-  ct_map_config = config["comparisons"][wildcards.comparison]["cell_type_mapping"]
-  if ct_map_config is None:
-    ct_map = []
+# get optional input files if they are specified in config
+def get_optional_file(wildcards, file):
+  try:
+    file = config["comparisons"][wildcards.comparison][file]
+  except KeyError:
+    file = None
+  if file is None:
+    file = []
   else:
-    ct_map = ct_map_config.values()
-  return ct_map
-  
-# get gene features if they are specified in config
-def get_gene_features(wildcards):
-  feat_config = config["comparisons"][wildcards.comparison]["gene_features"]
-  if feat_config is None:
-    feat = []
-  else:
-    feat = feat_config.values()
-  return feat
-
-# get annotation features if they are specified in config
-def get_enh_features(wildcards):
-  feat_config = config["comparisons"][wildcards.comparison]["enh_features"]
-  if feat_config is None:
-    feat = []
-  else:
-    feat = feat_config.values()
-  return feat
-  
-# get enhancer assays if they are specified in config
-def get_enh_assays(wildcards):
-  feat_config = config["comparisons"][wildcards.comparison]["enh_assays"]
-  if feat_config is None:
-    feat = []
-  else:
-    feat = feat_config.values()
-  return feat
+    if type(file) is dict:
+      file = file.values()
+  return file
 
 ## RULES -------------------------------------------------------------------------------------------
 
@@ -64,7 +41,8 @@ rule mergePredictionsWithExperiment:
     tss_universe = lambda wildcards: config["comparisons"][wildcards.comparison]["tss_universe"],
     gene_universe = lambda wildcards: config["comparisons"][wildcards.comparison]["gene_universe"],
     pred_config = get_pred_config,
-    cell_type_mapping = get_cell_type_mappings
+    cell_type_mapping = lambda wildcards: get_optional_file(wildcards, "cell_type_mapping"),
+    expressed_genes = lambda wildcards: get_optional_file(wildcards, "expressed_genes")
   output:
     merged = temp("results/{comparison}/expt_pred_merged.txt.gz")
   params:
@@ -72,7 +50,7 @@ rule mergePredictionsWithExperiment:
   log: "results/{comparison}/logs/mergePredictionsWithExperiment.log"
   conda: "../envs/r_crispr_comparison.yml"
   resources:
-    mem = "64G"
+    mem = "32G"
   script:
    "../../workflow/scripts/mergePredictionsWithExperiment.R"
    
@@ -80,14 +58,14 @@ rule mergePredictionsWithExperiment:
 rule annotateEnhFeatures:
   input:
     merged = "results/{comparison}/expt_pred_merged.txt.gz",
-    gene_features = get_gene_features,
-    enh_features = get_enh_features,
-    enh_assays = get_enh_assays
+    gene_features = lambda wildcards: get_optional_file(wildcards, "gene_features"),
+    enh_features = lambda wildcards: get_optional_file(wildcards, "enh_features"),
+    enh_assays = lambda wildcards: get_optional_file(wildcards, "enh_assays")
   output:
     "results/{comparison}/expt_pred_merged_annot.txt.gz"
   conda: "../envs/r_crispr_comparison.yml"
   resources:
-    mem = "48G"
+    mem = "32G"
   script:
     "../../workflow/scripts/annotateMergedData.R"
    

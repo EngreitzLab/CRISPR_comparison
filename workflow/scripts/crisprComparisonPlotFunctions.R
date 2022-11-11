@@ -5,6 +5,164 @@ library(data.table)
 library(ggpubr)
 library(ggcorrplot)
 
+## WORK IN PROGRESS CODE ===========================================================================
+
+# run bootstrap sampled AUPRC and precision @ threshold calculations
+bootstrapPerformance <- function(merged, pred_config, thresholds, n = 100, pos_col = "Regulated") {
+  
+  # run bootstrap sampling
+  bs_samples <- replicate(n = n,
+                          expr = run_bootstrap(merged, pred_config = pred_config,
+                                               thresholds = thresholds, pos_col = pos_col),
+                          simplify = FALSE)
+  
+  # combine into a table
+  bs_samples <- bind_rows(bs_samples, .id = "iteration")
+  
+  # compute mean auprc and precision, and 95% confidence intervals
+  output <- bs_samples %>% 
+    group_by(pred_uid) %>% 
+    summarize(auprc_mean = mean(auprc),
+              precision_mean = mean(precision),
+              auprc_ci_lower = quantile(auprc, probs = 0.025),
+              auprc_ci_upper = quantile(auprc, probs = 0.975),
+              precision_ci_lower = quantile(precision, probs = 0.025),
+              precision_ci_upper = quantile(precision, probs = 0.975))
+  
+  return(output)
+  
+}
+
+# perform one bootstrap sampling and compute AUPRC and precision at min_sensitivity
+run_bootstrap <- function(merged, pred_config, thresholds, pos_col = "Regulated") {
+  
+  # number of unique E-G pairs for bootstrap
+  n_pairs <- length(unique(merged$name))
+  
+  # draw bootstrap samples
+  bs_merged <- merged %>% 
+    group_by(pred_uid) %>% 
+    sample_n(size = n_pairs, replace = TRUE)
+  
+  # compute PR table
+  pr <- calcPRCurves(bs_merged, pred_config = pred_config, pos_col = pos_col)
+  
+  # remove any boolean predictors since the following metrics don't make sense for them
+  bool_preds <- pull(filter(pred_config, boolean == TRUE), pred_uid)
+  pr <- filter(pr, !pred_uid %in% bool_preds)
+  
+  # compute performance for bootstrap sample
+  output <- pr %>% 
+    group_split(pred_uid) %>% 
+    lapply(calc_perf_one_pred, thresholds = thresholds) %>% 
+    bind_rows()
+  
+  return(output)
+  
+}
+
+# calculate AUPRC and precision for one predictor
+calc_perf_one_pred <- function(pr, thresholds) {
+  
+  # check that pr contains data on only one predictor
+  predictor <- unique(pr$pred_uid)
+  if (length(predictor) > 1) {
+    stop("Input pr contains data for more than one unique predictor.", call. = FALSE)
+  }
+  
+  # make sure that input is sorted according to recall and precision
+  pr <- arrange(pr, recall, desc(precision))
+  
+  # compute AUC and maximum F1
+  # the head() calls here remove the last element of the vector. 
+  # The point is that performance objects produced by ROCR always include a Recall = 100% point even
+  # if the predictor cannot achieve a recall of 100%. This results in a straight line ending at
+  # (1,0) on the PR curve. This should not be included in the AUC computation.
+  auprc <- pr %>% 
+    head(-1) %>% 
+    summarize(AUPRC = computeAUC(x_vals = recall, y_vals = precision),
+              max_F1 = computeMaxF1(.))
+  
+  # compute performance at threshold
+  perf_threshold <- computePerfGivenCutoff(pr, alpha_cutoff = thresholds[[predictor]])
+  
+  # create output
+  output <- tibble(pred_uid = predictor, auprc = auprc$AUPRC,
+                   precision = perf_threshold$precision_at_cutoff)
+  
+  return(output)
+  
+}
+
+# make performance (AUPRC) per subset plot
+makePerfDistance <- function(merged_dist, pred_config, min_sensitivity = 0.7, pos_col = "Regulated",
+                             bs_iter = 100) {
+  
+  # count the number of unique experimentally tested pairs
+  crispr_pairs <- merged_dist %>% 
+    select(name, dist_bin = `distToTSS (bins)`, all_of(pos_col)) %>% 
+    distinct() %>% 
+    group_by(dist_bin) %>% 
+    summarize(pos = sum(Regulated == TRUE),
+              neg = sum(Regulated == FALSE))
+  
+  # compute performance summary 
+  pr <- calcPRCurves(merged_dist, pred_config = pred_config, pos_col = pos_col)
+  perf_summary <- makePRSummaryTable(pr, pred_config = pred_config,
+                                     min_sensitivity = min_sensitivity)
+  
+  # get thresholds for each predictor
+  thresholds <- deframe(select(perf_summary, pred_uid, alpha_cutoff))
+  
+  # split df into subsets based on provided column
+  merged_dist_split <- split(merged_dist, f = merged_dist$`distToTSS (bins)`)
+  
+  # compute performance summary for each predictor in each distance bin
+  perf_dist_bins <- merged_dist_split %>% 
+    lapply(FUN = calcPRCurves, pred_config = pred_config, pos_col = pos_col) %>% 
+    lapply(FUN = makePRSummaryTable, pred_config = pred_config,
+           min_sensitivity = min_sensitivity) %>% 
+    bind_rows(.id = "dist_bin")
+  
+  # compute bootstrapped performance for each predictor in each distance bin
+  bs_perf_dist_bins <- merged_dist_split %>% 
+    lapply(FUN = bootstrapPerformance, pred_config = pred_config, thresholds = thresholds,
+           n = bs_iter, pos_col = pos_col) %>% 
+    bind_rows(.id = "dist_bin")
+  
+  # add bootstrapped performance to selected performance metrics for each predictor and distance bin
+  perf_dist_bins <- perf_dist_bins %>% 
+    select(dist_bin, pred_uid, pred_name_long, AUPRC, precision_at_cutoff) %>% 
+    left_join(bs_perf_dist_bins, by = c("dist_bin", "pred_uid")) %>%
+    mutate(dist_bin = factor(dist_bin, levels = levels(merged_dist$`distToTSS (bins)`)))
+  
+  # add number of E-G pairs per bin
+  perf_dist_bins <- left_join(perf_dist_bins, crispr_pairs, by = "dist_bin")
+  
+  # create label for x-axis
+  perf_dist_bins <- perf_dist_bins %>% 
+    mutate(x_label = paste0(dist_bin, "\n", pos, "\n", neg)) %>% 
+    mutate(x_label = fct_reorder(x_label, .x = as.numeric(dist_bin)))
+  
+  # order predictors according to AUPRC on whole dataset
+  perf_dist_bins <- perf_dist_bins %>% 
+    left_join(select(perf_summary, pred_uid, all_dist_auprc = AUPRC), by = "pred_uid") %>% 
+    mutate(pred_name_long = fct_reorder(pred_name_long, .x = all_dist_auprc, .desc = TRUE))
+  
+  # make performance as function of distance plot
+  ggplot(perf_dist_bins, aes(x = x_label, y = AUPRC, fill = pred_name_long)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    geom_errorbar(aes(ymin = auprc_ci_lower, ymax = auprc_ci_upper),
+                  position = position_dodge(), color = "black") +
+    labs(fill = "Predictor", x = "Distance to TSS\nCRISPRi positives\nCRISPRi negatives",
+         title = "AUPRC vs. distance to TSS") +
+    scale_fill_manual(values = pred_colors[levels(perf_dist_bins$pred_name_long)]) + 
+    theme_classic() +
+    theme(legend.position = "bottom")
+  
+}
+
+
 ## MAIN FUNCTIONS ==================================================================================
 
 # process merged data for benchmarking analyses
@@ -12,7 +170,11 @@ processMergedData <- function(merged, pred_config, filter_valid_connections = TR
                               include_missing_predictions = TRUE, distToTSS_as_kb = TRUE) {
   
   # add unique identifiers to merged data
-  merged <- unite(merged, col = "pred_uid", pred_id, pred_col, sep = ".", remove = FALSE)
+  merged$pred_uid <- paste(merged$pred_id, merged$pred_col, sep = ".")
+  
+  # only retain predictors that are specified to be included in plots
+  plot_preds <- pred_config[pred_config$plot_crispr == TRUE, ][["pred_uid"]]
+  merged <- merged[merged$pred_uid %in% plot_preds, ]
   
   # add long names and whether a predictor is boolean from pred_config to merged data
   merged <- pred_config %>% 
@@ -44,34 +206,39 @@ processMergedData <- function(merged, pred_config, filter_valid_connections = TR
 
 # process pred_config file for benchmarking analyses
 processPredConfig <- function(pred_config, merged,
-  config_cols = c("pred_id", "pred_col", "boolean", "alpha", "aggregate_function", "fill_value",
-                  "inverse_predictor", "pred_name_long", "color")) {
+                              config_cols = c("pred_id", "pred_col", "boolean", "alpha", "aggregate_function", "fill_value",
+                                              "inverse_predictor", "pred_name_long", "color", "plot_crispr")) {
   
   # only retain columns relevant for CRISPR benchmarking
   pred_config <- pred_config[, ..config_cols]
   
   # add unique predictor identifier to pred_config
-  pred_config <- unite(pred_config, col = pred_uid, pred_id, pred_col, sep = ".", remove = FALSE)
+  pred_config$pred_uid <- paste(pred_config$pred_id, pred_config$pred_col, sep = ".")
   
   # filter pred_config for predictors also occurring in merged data
   merged_pred_uid <- unique(paste(merged$pred_id, merged$pred_col, sep = "."))
   pred_config <- filter(pred_config, pred_uid %in% merged_pred_uid)
   
   # create default baseline predictor configuration
-  baseline_preds <- c("distToTSS", "nearestTSS", "nearestGene")
+  baseline_preds <- c("distToTSS", "nearestTSS", "nearestGene", "nearestExprTSS", "nearestExprGene")
   baseline_preds_uid <- paste("baseline", baseline_preds, sep = ".")
   baseline_pred_config <- data.table(
     pred_uid = baseline_preds_uid,
     pred_id = "baseline",
     pred_col = baseline_preds,
-    boolean = c(FALSE, TRUE, TRUE),
-    alpha = c(NA, 1, 1),
-    aggregate_function = c("mean", "max", "max"),
-    fill_value = c(Inf, 0, 0),
-    inverse_predictor = c(TRUE, FALSE, FALSE),
-    pred_name_long = c("Distance to TSS", "Nearest TSS", "Nearest Gene"),
-    color = c("#ffa600", "#595959", "#bebebe")
+    boolean = c(FALSE, TRUE, TRUE, TRUE, TRUE),
+    alpha = c(NA, 1, 1, 1, 1),
+    aggregate_function = c("mean", "max", "max", "max", "max"),
+    fill_value = c(Inf, 0, 0, 0, 0),
+    inverse_predictor = c(TRUE, FALSE, FALSE, FALSE, FALSE),
+    pred_name_long = c("Distance to TSS", "Nearest TSS", "Nearest Gene", "Nearest expr. TSS",
+                       "Nearest expr. Gene"),
+    color = c("#ffa600", "#595959", "#bebebe", "#595959", "#bebebe"),
+    plot_crispr = TRUE
   )
+  
+  # only retain default values for baseline predictors also found in merged data
+  baseline_pred_config <- filter(baseline_pred_config, pred_uid %in% merged_pred_uid)
   
   # if no colors were set for any of the other predictors, set colors of baseline predictors to NA
   if (all(is.na(pred_config$color))) {
@@ -84,6 +251,9 @@ processPredConfig <- function(pred_config, merged,
   pred_config <- baseline_pred_config %>% 
     filter(pred_uid %in% baseline_preds_to_add) %>% 
     rbind(pred_config, .)
+  
+  # only retain predictors that are specified to be included in plots
+  pred_config <- pred_config[pred_config$plot_crispr == TRUE, ]
   
   # check that long predictor names are unique
   if (any(table(pred_config$pred_name_long) > 1)) {

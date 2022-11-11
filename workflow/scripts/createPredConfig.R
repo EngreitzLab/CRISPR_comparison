@@ -16,6 +16,7 @@ pred_config <- data.frame(
   inverse_predictor = FALSE,
   pred_name_long = paste0(snakemake@params$pred_names, ".Score"),
   color = NA,
+  plot_crispr = TRUE,
   stringsAsFactors = FALSE
   )
 

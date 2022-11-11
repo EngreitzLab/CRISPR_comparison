@@ -328,6 +328,25 @@ if (length(invalid_bins) > 0) {
 }
 ```
 
+## AUPRC as function of distance {.tabset .tabset-pills}
+```{r AUPRCVsDist, warning=FALSE}
+# plot performance as a function of distance to TSS
+dist_auprc <- applyCellTypes(merged_bins_filt, .fun = makePerfDistance, pred_config = pred_config,
+                             min_sensitivity = snakemake@params$min_sensitivity, pos_col = pos_col,
+                             bs_iter = 100)
+
+# save distance prc plots to files
+savePlotList(dist_auprc, basename = "distance_auprc.pdf", path = plotdir, height = 6, width = 8)
+```
+
+```{r, results='asis', fig.cap=cap, fig.height=6, fig.width=8}
+# print plots for every cell type in tabs
+printTabbedPlots(dist_auprc, section_level = "##")
+
+# figure caption
+cap <- paste("Area under the Precision-Recall Curve (AUPRC) for different distance to TSS bins (kb).")
+```
+
 ## Precision-recall curves {.tabset .tabset-pills}
 ```{r PRCVsDist, warning=FALSE}
 # count the number of distance bins to set number of rows in plot grid
