@@ -19,10 +19,12 @@ dependencies:
   - r-plotly=4.10.0
   - r-rocr=1.0_11
   - r-catools=1.18.2
+  - r-boot=1.3_28.1
   - r-dt=0.22
   - r-rmarkdown=2.13
   - r-bookdown=0.25
   - r-optparse=1.7.1
   - bioconductor-genomicranges=1.46.1
   - bioconductor-rtracklayer=1.54.0
+  - bioconductor-biocparallel=1.28.3
   

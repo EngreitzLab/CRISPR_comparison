@@ -9,4 +9,4 @@ include: "rules/crispr_comparison.smk"
 rule all:
   input:
     expand("results/{comparison}/{comparison}_crispr_comparison.html",
-    comparison = config["comparisons"])
+      comparison = config["comparisons"])

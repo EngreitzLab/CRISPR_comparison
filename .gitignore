@@ -6,3 +6,4 @@
 .snakemake
 results/
 data/
+slurm_logs

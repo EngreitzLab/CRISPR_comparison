@@ -25,6 +25,7 @@ library(ROCR)
 library(caTools)
 library(UpSetR)
 source(file.path(snakemake@scriptdir, "crisprComparisonPlotFunctions.R"))
+source(file.path(snakemake@scriptdir, "crisprComparisonBootstrapFunctions.R"))
 ```
 
 ```{r prepareInputData}
@@ -284,14 +285,14 @@ if (is.null(snakemake@params$dist_bins_kb)) {
 # bin pairs by distance
 dist_bins <- merged %>% 
   filter(pred_uid == "baseline.distToTSS") %>% 
-  mutate(`distToTSS (bins)` = cut(pred_value, breaks = dist_breaks), right = FALSE) %>% 
+  mutate(`distToTSS (bins)` = cut(pred_value, breaks = dist_breaks, right = FALSE)) %>% 
   select(name, `distToTSS (bins)`)
 
 # add distance bins to merged
 merged_bins <- left_join(merged, dist_bins, by = "name") %>% 
   filter(!is.na(`distToTSS (bins)`))
 
-# get unique experimentally tested pairs
+# get unique experimentally tested pairs (TODO: implement count_pairs_subset() for this)
 crispr_pairs <- distinct(select(merged_bins, name, `distToTSS (bins)`, all_of(pos_col)))
 
 # plot number of pairs per distance bin
@@ -329,17 +330,18 @@ if (length(invalid_bins) > 0) {
 ```
 
 ## AUPRC as function of distance {.tabset .tabset-pills}
-```{r AUPRCVsDist, warning=FALSE}
+```{r AUPRCVsDist, message=FALSE, warning=FALSE}
 # plot performance as a function of distance to TSS
-dist_auprc <- applyCellTypes(merged_bins_filt, .fun = makePerfDistance, pred_config = pred_config,
-                             min_sensitivity = snakemake@params$min_sensitivity, pos_col = pos_col,
-                             bs_iter = 100)
+dist_auprc <- applyCellTypes(merged_bins_filt, .fun = plotPerfSubsets, pred_config = pred_config,
+                             subset_col = "distToTSS (bins)", metric = "auprc",
+                             subset_name = "Distance to TSS (kb)",
+                             title = "AUPRC vs. distance to TSS", pos_col = pos_col, bs_iter = 1000)
 
 # save distance prc plots to files
-savePlotList(dist_auprc, basename = "distance_auprc.pdf", path = plotdir, height = 6, width = 8)
+savePlotList(dist_auprc, basename = "distance_auprc.pdf", path = plotdir, height = 5, width = 8)
 ```
 
-```{r, results='asis', fig.cap=cap, fig.height=6, fig.width=8}
+```{r, results='asis', fig.cap=cap, fig.height=5, fig.width=8}
 # print plots for every cell type in tabs
 printTabbedPlots(dist_auprc, section_level = "##")
 
