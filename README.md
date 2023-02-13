@@ -1,4 +1,4 @@
-# Evaluate Enhancer-Gene prediction models against experimental data
+# Benchmark enhancer-gene prediction models against CRISPR data
 
 This workflow is designed to evaluate the performance of an enhancer-gene linking model against
 experimental data from CRISPR enhancer screes. It supports the evaluation of multiple predictors
@@ -21,7 +21,8 @@ Other notes:
  * Inputs (see below for formats):
  	* One experimental data file 
  	* At least one predictions file
- 	* Configuration file describing how predictor should be aggregated
+ 	* (optional) Configuration file describing metadata of predictors, including how to aggreagate
+  multiple predicted enhancers overlapping one experimental enhancer
  	* (optional) Cell type mappings between cell types in predictions and experiment
  	
 ### Dependencies
@@ -31,19 +32,27 @@ without conda, following R dependencies are required:
 
 ```sh
 # base R:
-R (>=4.0.0)
+R (>=4.1.1)
 
 # R packages:
-tidyverse (>=1.3.0)
-here (>=1.0.1)
-data.table (>=1.13.6)
-GenomicRanges (>=1.42.0)
-ROCR (>=1.0_11)
-caTools (>=1.18.1)
-rmarkdown (>=2.7)
-bookdown (>=0.21)
-DT (>=0.18)
-plotly (>=4.9.3)
+R.utils (>=2.11.0)
+data.table (>=1.14.2)
+tidyverse (>=1.3.1)
+cowplot (>=1.1.1)
+ggpubr (>=0.4.0)
+ggcorrplot (>=0.1.3)
+upsetr (>=1.4.0)
+plotly (>=4.10.0)
+rocr (>=1.0_11)
+catools (>=1.18.2)
+boot (>=1.3_28.1)
+dt (>=0.22)
+rmarkdown (>=2.13)
+bookdown (>=0.25)
+optparse (>=1.7.1)
+GenomicRanges (>=1.46.1)
+rtracklayer (>=1.54.0)
+BiocParallel (>=1.28.3)
 ```
 
 ## File Formats
@@ -59,8 +68,8 @@ plotly (>=4.9.3)
 ## Configuring the snakemake workflow
 The `config/config.yml` file is used to specify comparisons that should be performed. See the
 comparison `"example"` in this file as an example. In addition to the predictions and experiment
-input files, each comparison requires a prediction config file (pred_config) in .txt format. This
-file specifies how the different predictors should be handled and the behavior of the comparison
+input files, each comparison can take a prediction config file (pred_config) in .txt format as input.
+This file specifies how the different predictors should be handled and the behavior of the comparison
 code for this predictor depends on its content:
 
  * pred_id: Short name for each predictor. Same as the names of 'pred' in the `config.yml` file.
@@ -74,7 +83,7 @@ code for this predictor depends on its content:
  elements, what value should be filled in.
  * inverse_predictor: Set to TRUE if lower values of the predictor signify more confidence in the
  prediction. This is appropriate for predictors such as linear distance or pvalue.
- * pred_name_long: A pretty name (2-3 words) for the predictor to make plots and tables nicer.
+ * pred_name_long: A pretty name (2-3 words) for the predictor to make plots and tables look nicer.
  
 See `resources/example/pred_config.txt` for an example. If this file is left out (`NULL` in 
 `config.txt`), a file with default values will be generated, however they might not be appropriate
