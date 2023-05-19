@@ -122,8 +122,18 @@ pr_table <- rbindlist(pr, idcol = "ExperimentCellType")
 write_tsv(pr_table, file = file.path(dirname(snakemake@output[[1]]), "pr_table.txt.gz"))
 
 # create performance summary tables
-perf_summary <- lapply(pr, FUN = makePRSummaryTable, pred_config = pred_config,
-                       min_sensitivity = snakemake@params$min_sensitivity)
+perf_summary <- applyCellTypes(merged, .fun = makePRSummaryTableBS, pred_config = pred_config,
+                               pos_col = pos_col)
+
+# convert performance summaries to one table and add full predictor names to performance summary
+perf_summary <- perf_summary %>% 
+  bind_rows(.id = "cell_type") %>% 
+  left_join(select(pred_config, pred_uid, pred_name_long), by = "pred_uid") %>% 
+  relocate(pred_name_long, .after = pred_uid)
+
+# save performance summary to text file
+write_tsv(perf_summary,
+          file = file.path(dirname(snakemake@output[[1]]), "performance_summary.txt"))
 ```
 
 ```{r plotPRC, warning=FALSE}
@@ -167,22 +177,13 @@ cap <- paste("Precision-recall curves for all predictors in all matching experim
 ## Performance summary
 
 ```{r perfSummary, fig.cap = cap}
-# convert pr summary tables to one table and reformat for printing
-perf_summary_print <- perf_summary %>% 
-  bind_rows(.id = "cell_type") %>% 
-  select(cell_type, predictor = pred_name_long, AUPRC, max_F1, alpha_cutoff, sensitivity_at_cutoff,
-         precision_at_cutoff, min_sensitivity, sensitivity_at_min_sensitivity,
-         precision_at_min_sensitivity, alpha_at_min_sensitivity)
-
-# save to text file
-write_tsv(perf_summary_print,
-          file = file.path(dirname(snakemake@output[[1]]), "performance_summary.txt"))
-
 # pretty-print PR summary table for report
-perf_summary_print  %>% 
+perf_summary  %>% 
+  select(-pred_uid) %>%
+  rename(predictor = pred_name_long) %>% 
   mutate(across(where(is.double), round, digits = 3)) %>% 
   datatable(
-    perf_summary_print,
+    perf_summary,
     extensions = c("FixedColumns", "Buttons"),
     options = list(
       pageLength = 20,
@@ -193,11 +194,12 @@ perf_summary_print  %>%
     ),
     autoHideNavigation = TRUE
     ) %>%
-  formatStyle(c(2, 4, 7), `border-right` = "solid 1px")
+  formatStyle(c(2, 5, 9), `border-right` = "solid 1px")
 
 # figure caption
-cap <- paste("Precision-recall performance summary for predictors. Table shows preformance metrics",
-             "and precision and recall at specified alpha and minimum sensitity (recall) of 0.7.")
+cap <- paste("Precision-recall performance summary for predictors. Table shows Area-under-the-PRC",
+             "(AUPRC) and precision at specified thresholds (if specified) and minimum sensitity",
+             "(recall) of 0.7.")
 ```
 
 ***
@@ -586,6 +588,7 @@ if (length(enh_feat_cols) > 0) {
   
   # calculate plot dimensions based on number of predictors
   plot_height <- ceiling(n_distinct(merged$pred_name_long) * length(enh_feat_cols) * 1.5)
+  plot_height <- min(c(plot_height, 170))
   
 }
 ```

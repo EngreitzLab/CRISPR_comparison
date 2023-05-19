@@ -3,15 +3,20 @@
 # function to compute specified baseline predictors
 computeBaselinePreds <- function(expt, tss_annot = NULL, gene_annot = NULL, expressed_genes = NULL,
                                  preds = c("distToTSS", "distToGene", "nearestTSS", "nearestGene",
-                                           "nearestExprTSS", "nearestExprGene")) {
+                                           "within100kbTSS", "within100kbGene", "nearestExprTSS",
+                                           "nearestExprGene", "within100kbExprTSS",
+                                           "within100kbExprGene")) {
   
   # parse preds argument
   preds <- match.arg(preds, several.ok = TRUE)
   
   # get categories of specified predictors to check input data
-  tss_preds  <- intersect(preds, c("distToTSS","nearestTSS", "nearestExprTSS"))
-  gene_preds <- intersect(preds, c("distToGene", "nearestGene", "nearestExprGene"))
-  expr_preds <- intersect(preds, c("nearestExprTSS", "nearestExprGene"))
+  tss_preds  <- intersect(preds, c("distToTSS","nearestTSS", "nearestExprTSS", "within100kbTSS",
+                                   "within100kbExprTSS"))
+  gene_preds <- intersect(preds, c("distToGene", "nearestGene", "nearestExprGene",
+                                   "within100kbExprGene"))
+  expr_preds <- intersect(preds, c("nearestExprTSS", "nearestExprGene", "within100kbExprTSS",
+                                   "within100kbExprGene"))
   
   # abort if required input data is not provided for all specified predictors
   if (length(tss_preds) > 0 & is.null(tss_annot)) {
@@ -52,10 +57,16 @@ compute_baseline_predictor <- function(pred, expt, tss_annot, gene_annot, expr_g
     "distToGene" = computeDistToGene(expt, annot = gene_annot, name = pred, fix_annot = "none"),
     "nearestTSS" = nearestFeaturePred(expt, features = tss_annot, name = pred),
     "nearestGene" = nearestFeaturePred(expt, features = gene_annot, name = pred),
+    "within100kbTSS" = withinDistFeature(expt, features = tss_annot, dist = 1e+05, name = pred),
+    "within100kbGene" = withinDistFeature(expt, features = gene_annot, dist = 1e+05, name = pred),
     "nearestExprTSS" = nearestFeaturePred(
       expt, features = tss_annot[tss_annot$gene %in% expr_genes, ], name = pred),
     "nearestExprGene" = nearestFeaturePred(
-      expt, features = gene_annot[gene_annot$gene %in% expr_genes, ], name = pred)
+      expt, features = gene_annot[gene_annot$gene %in% expr_genes, ], name = pred),
+    "within100kbExprTSS" = withinDistFeature(
+      expt, features = tss_annot[tss_annot$gene %in% expr_genes, ], dist = 1e+05, name = pred),
+    "within100kbExprGene" = withinDistFeature(
+      expt, features = gene_annot[gene_annot$gene %in% expr_genes, ], dist = 1e+05, name = pred)
   )
 
   return(output)
@@ -66,7 +77,7 @@ compute_baseline_predictor <- function(pred, expt, tss_annot, gene_annot, expr_g
 computeDistToGene <- function(expt, annot, name, fix_annot = c("none", "center", "start", "end")) {
   
   # parse fix argument
-  fix_annot <- match.arg(fix_annot, choices = c("none", "center", "start", "end"))
+  fix_annot <- match.arg(fix_annot)
   
   # assume first three column of annot are chr, start, end and convert annot to GRanges object
   colnames(annot)[1:3] <- c("chr", "start", "end")
@@ -107,7 +118,10 @@ computeDistToGene <- function(expt, annot, name, fix_annot = c("none", "center",
 # data frame in bed style format, i.e chr, start, end, name, etc.
 nearestFeaturePred <- function(expt, features, name) {
   
-  # create GRanges object containing TSS coordinates
+  # initial column names in expt
+  expt_cols <- colnames(expt)
+  
+  # create GRanges object containing feature coordinates
   features <- features[, 1:4]
   colnames(features) <- c("chr", "start", "stop", "name")
   features <- makeGRangesFromDataFrame(features, keep.extra.columns = TRUE)
@@ -117,7 +131,7 @@ nearestFeaturePred <- function(expt, features, name) {
   
   # create predictor whether the gene of each pair is the closest TSS
   output <- data.table(
-    expt[, -"nearest_feature"],
+    expt[, ..expt_cols],
     PredictionCellType = NA_character_,
     pred_id = "baseline",
     pred_col = name,
@@ -149,6 +163,53 @@ nearest_genomic_feature <- function(expt, features, ignore.strand = TRUE) {
   return(output[, -"uid"])
   
 }
+
+# candidate enhancers within a certain distance from gene TSS or body baseline predictor
+withinDistFeature <- function(expt, features, dist, name) {
+  
+  # initial column names in expt
+  expt_cols <- colnames(expt)
+  
+  # create GRanges object containing feature coordinates
+  features <- features[, 1:4]
+  colnames(features) <- c("chr", "start", "stop", "name")
+  features <- makeGRangesFromDataFrame(features, keep.extra.columns = TRUE)
+  
+  # create unique CRE identifiers
+  expt$cre_id <- with(expt, paste0(chrom, ":", chromStart, "-", chromEnd))
+  
+  # get unique CREs create GRanges object containing CRE coordinates
+  cres <- unique(expt[, c("chrom" ,"chromStart", "chromEnd", "cre_id")])
+  cres <- makeGRangesFromDataFrame(cres, seqnames.field = "chrom", start.field = "chromStart",
+                                   end.field = "chromEnd", keep.extra.columns = TRUE)
+  
+  # extend CREs by dist on both sides to create windows for overlapping
+  cres <- resize(cres, width = dist * 2, fix = "center")
+  
+  # find all features within the specified distance from each CRE
+  ovl <- findOverlaps(cres, features)
+  
+  # get names of CREs and feature pairs within specified distance
+  within_dist_pairs <- data.table(cre_id = cres[queryHits(ovl)]$cre_id,
+                                  measuredGeneSymbol = features[subjectHits(ovl)]$name,
+                                  pred_value = 1)
+  
+  # add this to expt data
+  expt <- merge(expt, within_dist_pairs, by = c("cre_id", "measuredGeneSymbol"), all.x = TRUE)
+  expt$pred_value[is.na(expt$pred_value)] <- 0
+  
+  # reformat for output
+  output <- data.table(
+    expt[, ..expt_cols],
+    PredictionCellType = NA_character_,
+    pred_id = "baseline",
+    pred_col = name,
+    pred_value = expt$pred_value,
+    Prediction = 1
+  )
+  
+}
+
 
 ## DEPRECATED ======================================================================================
 

@@ -109,9 +109,10 @@ merged <- combineAllExptPred(expt = expt,
 ## compute baseline predictors ---------------------------------------------------------------------
 
 # get simple baseline predictors to compute
-baseline_pred_ids <- c("distToTSS", "nearestTSS", "nearestGene")
+baseline_pred_ids <- c("distToTSS", "nearestTSS", "nearestGene", "within100kbTSS")
 if (!is.null(expressed_genes)) {
-  baseline_pred_ids <- c(baseline_pred_ids, c("nearestExprTSS", "nearestExprGene"))
+  baseline_pred_ids <- c(baseline_pred_ids,
+                         c("nearestExprTSS", "nearestExprGene", "within100kbExprTSS"))
 }
 
 # compute and add baseline predictors

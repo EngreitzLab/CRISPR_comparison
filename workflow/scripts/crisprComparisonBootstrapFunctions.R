@@ -105,7 +105,8 @@ bootstrapPerformanceIntervals <- function(data, metric = c("auprc", "precision")
   
   # compute confidence intervals for all predictors
   message("Computing confidence intervals...")
-  ci <- bplapply(seq_along(bs_perf$t0), FUN = boot.ci, boot.out = bs_perf, conf = conf,
+  pred_indices <- seq_along(bs_perf$t0)[!is.na(bs_perf$t0)]  # indices of non-NA predictors 
+  ci <- bplapply(pred_indices, FUN = boot.ci, boot.out = bs_perf, conf = conf,
                  type = ci_type)
   
   # process boot.ci output to make pretty output table
@@ -187,7 +188,7 @@ bootstrapDeltaPerformance <- function(data, metric = c("auprc", "precision"), co
   
   # process boot.ci output to make pretty output table
   output <- process_ci(ci, boot = bs_delta, metric = paste0("delta_", metric))
-
+  
   # compute p-values under the null hypothesis that delta is 0
   message("Computing p-values...")
   pvalues <- compute_pvalues(bs_delta, type = ci_type, theta_null = 0, pval_precision = NULL)
@@ -313,6 +314,13 @@ calc_delta_precision <- function(data, indices, thresholds, comparisons) {
 # calculate AUPRC for a given predictors
 calculate_auprc_one_pred <- function(data, pred) {
   
+  # return NA if 'Regulated' column does not contain at least one positive and negative
+  if (length(unique(data$Regulated)) != 2) {
+    warning("Not both positives and negatives ('Regulated') in bootstrap sample. Returning 'NA'.",
+            call. = FALSE)
+    return(NA_real_)
+  }
+  
   # compute precision-recall curve
   pr <- performance(prediction(data[[pred]], data$Regulated), measure = "prec", x.measure = "rec")
   
@@ -338,6 +346,13 @@ calculate_auprc_one_pred <- function(data, pred) {
 
 # calculate precision at threshold for all predictors
 calculate_precision_one_pred <- function(data, pred, threshold) {
+  
+  # return NA if 'Regulated' column does not contain at least one positive and negative
+  if (length(unique(data$Regulated)) != 2) {
+    warning("Not both positives and negatives ('Regulated') in bootstrap sample. Returning 'NA'.",
+            call. = FALSE)
+    return(NA_real_)
+  }
   
   # compute precision-recall curve
   pr <- performance(prediction(data[[pred]], data$Regulated), measure = "prec", x.measure = "rec")

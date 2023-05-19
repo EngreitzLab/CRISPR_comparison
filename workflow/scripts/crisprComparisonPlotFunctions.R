@@ -48,8 +48,9 @@ plotPerfSubsets <- function(merged, pred_config, subset_col, metric = c("auprc",
     geom_bar(stat = "identity", position = position_dodge()) +
     geom_errorbar(aes(ymin = lower, ymax = upper), position = position_dodge(width = 0.9),
                   color = "black", width = 0.25) +
-    labs(fill = "Predictor", x = x_label, title = title) +
+    labs(fill = "Predictor", x = x_label, y = metric, title = title) +
     scale_fill_manual(values = pred_colors[levels(perf$pred_name_long)]) + 
+    scale_y_continuous(limits = c(0, 1)) +
     theme_bw() +
     theme(legend.position = "bottom")
   
@@ -77,7 +78,7 @@ compute_performance_subsets <- function(merged, pred_config, subset_col, metric,
   }
   
   return(perf_subsets)
-
+  
 }
 
 # count the number of crispr positive and negatives in subsets (and whole dataset if all == TRUE)
@@ -103,7 +104,7 @@ count_pairs_subset <- function(merged, subset_col, pos_col, all = TRUE) {
       mutate(subset = "All", .before = 1) %>% 
       bind_rows(., pairs_subsets)
     
-    }
+  }
   
   return(pairs_subsets)
   
@@ -174,20 +175,21 @@ processPredConfig <- function(pred_config, merged) {
   pred_config <- filter(pred_config, pred_uid %in% merged_pred_uid)
   
   # create default baseline predictor configuration
-  baseline_preds <- c("distToTSS", "nearestTSS", "nearestGene", "nearestExprTSS", "nearestExprGene")
+  baseline_preds <- c("distToTSS", "nearestTSS", "nearestGene", "within100kbTSS", "nearestExprTSS",
+                      "nearestExprGene", "within100kbExprTSS")
   baseline_preds_uid <- paste("baseline", baseline_preds, sep = ".")
   baseline_pred_config <- data.table(
     pred_uid = baseline_preds_uid,
     pred_id = "baseline",
     pred_col = baseline_preds,
-    boolean = c(FALSE, TRUE, TRUE, TRUE, TRUE),
-    alpha = c(NA, 1, 1, 1, 1),
-    aggregate_function = c("mean", "max", "max", "max", "max"),
-    fill_value = c(Inf, 0, 0, 0, 0),
-    inverse_predictor = c(TRUE, FALSE, FALSE, FALSE, FALSE),
-    pred_name_long = c("Distance to TSS", "Nearest TSS", "Nearest Gene", "Nearest expr. TSS",
-                       "Nearest expr. Gene"),
-    color = c("#ffa600", "#595959", "#bebebe", "#595959", "#bebebe"),
+    boolean = c(FALSE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE),
+    alpha = c(NA, 1, 1, 1, 1, 1, 1),
+    aggregate_function = c("mean", "max", "max", "max", "max", "max", "max"),
+    fill_value = c(Inf, 0, 0, 0, 0, 0, 0),
+    inverse_predictor = c(TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE),
+    pred_name_long = c("Distance to TSS", "Nearest TSS", "Nearest Gene", "Within 100kb of TSS",
+                       "Nearest expr. TSS", "Nearest expr. Gene", "Within 100kb of expr. TSS"),
+    color = c("#ffa600", "#595959", "#bebebe", "#000000", "#595959", "#bebebe", "#000000"),
     plot_crispr = TRUE
   )
   
@@ -212,6 +214,10 @@ processPredConfig <- function(pred_config, merged) {
   
   if (all(c("baseline.nearestGene", "baseline.nearestExprGene") %in% baseline_preds_to_add)) {
     baseline_preds_to_add <- setdiff(baseline_preds_to_add, "baseline.nearestGene")
+  }
+  
+  if (all(c("baseline.within100kbTSS", "baseline.within100kbExprTSS") %in% baseline_preds_to_add)) {
+    baseline_preds_to_add <- setdiff(baseline_preds_to_add, "baseline.within100kbTSS")
   }
   
   # add baseline predictors to pred_config
@@ -285,34 +291,70 @@ calcPRCurves <- function(df, pred_config, pos_col) {
   
 }
 
-# create performance summary table for all predictors in a PR table
-makePRSummaryTable <- function(pr_df, pred_config, min_sensitivity = 0.7) {
+# create bootstrapped performance summary table for all predictors in a PR table
+makePRSummaryTableBS <- function(merged, pred_config, pos_col, min_sensitivity = 0.7, R = 1000,
+                                 conf = 0.95, ncpus = 1) {
   
-  # remove any boolean predictors since the following metrics don't make sense for them
-  bool_preds <- pull(filter(pred_config, boolean == TRUE), pred_uid)
-  pr_df <- filter(pr_df, !pred_uid %in% bool_preds)
+  # convert merged to wide format for bootstrapping
+  merged_bs <- convertMergedForBootstrap(merged, pred_config = pred_config, pos_col = pos_col)
   
-  # compute performance summary for each predictor
-  perf_summary <- pr_df %>% 
-    group_split(pred_uid) %>% 
-    lapply(calcPerfSummaryOnePred, pred_config = pred_config, min_sensitivity = min_sensitivity) %>% 
-    bind_rows()
+  # extract defined thresholds
+  thresholds <- deframe(select(pred_config, pred_uid, alpha))
+  thresholds <- thresholds[!is.na(thresholds) & names(thresholds) %in% colnames(merged_bs)]
   
-  # add predictor information from pred_config
-  perf_summary <- pred_config %>% 
-    select(pred_uid, pred_id, pred_col, inverse_predictor, pred_name_long) %>% 
-    left_join(x = perf_summary, y = ., by = "pred_uid")
+  # bootstrap overall performance (AUPRC) and reformat for performance summary table
+  perf <- bootstrapPerformanceIntervals(merged_bs, metric = "auprc", R = R, conf = conf,
+                                        ci_type = "perc", ncpus = ncpus)
+  perf <- select(perf, pred_uid = id, AUPRC = full, AUPRC_lowerCi = lower, AUPRC_upperCi = upper)
   
-  # set alpha to alpha at minimum sensitivity if threshold was set to NA
-  perf_summary <- perf_summary %>% 
-    left_join(select(pred_config, pred_uid, alpha), by = "pred_uid") %>% 
-    mutate(alpha_cutoff = if_else(is.na(alpha), alpha_at_min_sensitivity, alpha_cutoff),
-           alpha_at_cutoff = if_else(is.na(alpha), alpha_at_min_sensitivity, alpha_at_cutoff),
-           sensitivity_at_cutoff = if_else(is.na(alpha), sensitivity_at_min_sensitivity, sensitivity_at_cutoff),
-           precision_at_cutoff = if_else(is.na(alpha), precision_at_min_sensitivity, precision_at_cutoff)) %>% 
-    select(-alpha)
+  # bootstrap precision at defined thresholds (if there are any)
+  if (length(thresholds) > 0) {
+    
+    # get data on predictors with thresholds
+    merged_bs_thresh <- select(merged_bs, name, Regulated, any_of(names(thresholds)))
+    
+    # run precision bootstraps using defined thresholds 
+    prec_thresh <- bootstrapPerformanceIntervals(merged_bs_thresh, metric = "precision",
+                                                 thresholds = thresholds, R = R, conf = conf,
+                                                 ci_type = "perc", ncpus = ncpus)
+    # add to performance table
+    perf <- prec_thresh %>% 
+      select(pred_uid = id, PrecThresh = full, PrecThresh_lowerCi = lower,
+             PrecThresh_upperCi = upper) %>% 
+      left_join(enframe(thresholds, name = "pred_uid", value = "threshold"),
+                by = "pred_uid") %>% 
+      left_join(perf, ., by = "pred_uid")
+    
+  }
   
-  return(perf_summary)
+  # get performance at minimum sensitivity
+  pr <- calcPRCurves(merged, pred_config = pred_config, pos_col = pos_col)
+  perf_min_sens <- pr %>% 
+    arrange(pred_uid, recall, desc(precision)) %>% 
+    split(., f = .$pred_uid) %>% 
+    lapply(FUN = computePerfGivenSensitivity, min_sensitivity = min_sensitivity) %>% 
+    bind_rows(.id = "pred_uid")
+  
+  # extract threshold at min sensitivity
+  thresholds_min_sens <- deframe(select(perf_min_sens, pred_uid, alpha_at_min_sensitivity))
+  
+  # bootstrap precison at minimum sensitivity
+  prec_min_sens <- bootstrapPerformanceIntervals(merged_bs, metric = "precision",
+                                                 thresholds = thresholds_min_sens, R = R,
+                                                 conf = conf, ci_type = "perc", ncpus = ncpus)
+  
+  # add to performance table
+  perf <- prec_min_sens %>% 
+    select(pred_uid = id, PrecMinSens = full, PrecMinSens_lowerCi = lower,
+           PrecMinSens_upperCi = upper) %>% 
+    left_join(enframe(thresholds_min_sens, name = "pred_uid", value = "thresholdMinSens"),
+              by = "pred_uid") %>% 
+    left_join(perf, ., by = "pred_uid")
+  
+  # sort accoring to overall performance for output
+  perf <- arrange(perf, desc(AUPRC))
+    
+  return(perf)
   
 }
 
@@ -893,54 +935,15 @@ pr2df <- function(pr, calc_f1 = TRUE) {
   
 }
 
-# create performace summary for one predictor
-calcPerfSummaryOnePred <- function(pr_df, pred_config, min_sensitivity) {
-  
-  # check that pr_df contains data on only one predictor
-  predictor <- unique(pr_df$pred_uid)
-  if (length(predictor) > 1) {
-    stop("Input pr_df contains data for more than one unique predictor.", call. = FALSE)
-  }
-  
-  # make sure that input is sorted according to recall and precision
-  pr_df <- arrange(pr_df, recall, desc(precision))
-  
-  # compute AUC and maximum F1
-  # the head() calls here remove the last element of the vector. 
-  # The point is that performance objects produced by ROCR always include a Recall = 100% point even
-  # if the predictor cannot achieve a recall of 100%. This results in a straight line ending at
-  # (1,0) on the PR curve. This should not be included in the AUC computation.
-  auprc <- pr_df %>% 
-    head(-1) %>% 
-    summarize(AUPRC = computeAUC(x_vals = recall, y_vals = precision),
-              max_F1 = computeMaxF1(.))
-  
-  # compute performance at min sensitivity
-  perf_min_sens <- computePerfGivenSensitivity(pr_df, min_sensitivity = min_sensitivity)
-  
-  # get cutoff specified in pred_config for given predictor
-  cutoff <- pred_config %>% 
-    filter(pred_uid == predictor) %>% 
-    mutate(alpha = if_else(inverse_predictor == TRUE, true = alpha * -1, false = alpha)) %>% 
-    pull(alpha)
-  
-  # compute performance at specified alpha cutoff
-  perf_alpha_cutoff <- computePerfGivenCutoff(pr_df, alpha_cutoff = cutoff)
-  
-  # create output table
-  perf_summary <- data.frame(pred_uid = predictor, auprc, perf_min_sens, perf_alpha_cutoff)
-  
-  # if AUC couldn't be computed, set all performance metrics to NA, since this indicates a PRC
-  # without any real points except the starting and end points added by the ROCR package
-  # TODO: find better solution for this
-  if (all(is.na(auprc))) {
-    perf_cols <- !colnames(perf_summary) %in% c("pred_uid", "min_sensitivity", "alpha_cutoff")
-    perf_summary[, perf_cols] <- NA_real_ 
-  }
-  
-  return(perf_summary)
-  
-}
+
+
+
+
+
+
+
+
+
 
 # try to compute AUC
 computeAUC <- function(x_vals, y_vals) {
@@ -1136,3 +1139,86 @@ get_alpha_min <- function(merged, predictor, inverse = FALSE) {
     summarize(alpha = if_else(inverse == TRUE, max(pred_value), min(pred_value))) %>% 
     pull(alpha)
 }
+
+## DEPRECATED ======================================================================================
+
+# create performance summary table for all predictors in a PR table
+makePRSummaryTable <- function(pr_df, pred_config, min_sensitivity = 0.7) {
+  
+  # remove any boolean predictors since the following metrics don't make sense for them
+  bool_preds <- pull(filter(pred_config, boolean == TRUE), pred_uid)
+  pr_df <- filter(pr_df, !pred_uid %in% bool_preds)
+  
+  # compute performance summary for each predictor
+  perf_summary <- pr_df %>% 
+    group_split(pred_uid) %>% 
+    lapply(calcPerfSummaryOnePred, pred_config = pred_config, min_sensitivity = min_sensitivity) %>% 
+    bind_rows()
+  
+  # add predictor information from pred_config
+  perf_summary <- pred_config %>% 
+    select(pred_uid, pred_id, pred_col, inverse_predictor, pred_name_long) %>% 
+    left_join(x = perf_summary, y = ., by = "pred_uid")
+  
+  # set alpha to alpha at minimum sensitivity if threshold was set to NA
+  perf_summary <- perf_summary %>% 
+    left_join(select(pred_config, pred_uid, alpha), by = "pred_uid") %>% 
+    mutate(alpha_cutoff = if_else(is.na(alpha), alpha_at_min_sensitivity, alpha_cutoff),
+           alpha_at_cutoff = if_else(is.na(alpha), alpha_at_min_sensitivity, alpha_at_cutoff),
+           sensitivity_at_cutoff = if_else(is.na(alpha), sensitivity_at_min_sensitivity, sensitivity_at_cutoff),
+           precision_at_cutoff = if_else(is.na(alpha), precision_at_min_sensitivity, precision_at_cutoff)) %>% 
+    select(-alpha)
+  
+  return(perf_summary)
+  
+}
+
+# create performance summary for one predictor
+calcPerfSummaryOnePred <- function(pr_df, pred_config, min_sensitivity) {
+  
+  # check that pr_df contains data on only one predictor
+  predictor <- unique(pr_df$pred_uid)
+  if (length(predictor) > 1) {
+    stop("Input pr_df contains data for more than one unique predictor.", call. = FALSE)
+  }
+  
+  # make sure that input is sorted according to recall and precision
+  pr_df <- arrange(pr_df, recall, desc(precision))
+  
+  # compute AUC and maximum F1
+  # the head() calls here remove the last element of the vector. 
+  # The point is that performance objects produced by ROCR always include a Recall = 100% point even
+  # if the predictor cannot achieve a recall of 100%. This results in a straight line ending at
+  # (1,0) on the PR curve. This should not be included in the AUC computation.
+  auprc <- pr_df %>% 
+    head(-1) %>% 
+    summarize(AUPRC = computeAUC(x_vals = recall, y_vals = precision),
+              max_F1 = computeMaxF1(.))
+  
+  # compute performance at min sensitivity
+  perf_min_sens <- computePerfGivenSensitivity(pr_df, min_sensitivity = min_sensitivity)
+  
+  # get cutoff specified in pred_config for given predictor
+  cutoff <- pred_config %>% 
+    filter(pred_uid == predictor) %>% 
+    mutate(alpha = if_else(inverse_predictor == TRUE, true = alpha * -1, false = alpha)) %>% 
+    pull(alpha)
+  
+  # compute performance at specified alpha cutoff
+  perf_alpha_cutoff <- computePerfGivenCutoff(pr_df, alpha_cutoff = cutoff)
+  
+  # create output table
+  perf_summary <- data.frame(pred_uid = predictor, auprc, perf_min_sens, perf_alpha_cutoff)
+  
+  # if AUC couldn't be computed, set all performance metrics to NA, since this indicates a PRC
+  # without any real points except the starting and end points added by the ROCR package
+  # TODO: find better solution for this
+  if (all(is.na(auprc))) {
+    perf_cols <- !colnames(perf_summary) %in% c("pred_uid", "min_sensitivity", "alpha_cutoff")
+    perf_summary[, perf_cols] <- NA_real_ 
+  }
+  
+  return(perf_summary)
+  
+}
+

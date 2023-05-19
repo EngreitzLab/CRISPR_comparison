@@ -143,8 +143,12 @@ qcCellMapping <- function(cell_mappings) {
 # add information on whether genes are expressed or not to experimental data
 addGeneExpression <- function(expt, expressed_genes) {
   
+  # column order for output
+  output_cols <- c(colnames(expt), "expressed")
+  
   # add expression data to experimental data
   expt <- merge(expt, expressed_genes, by.x = "measuredGeneSymbol", by.y = "gene", all.x = TRUE)
+  expt <- expt[, ..output_cols]
   
   # set any experimental genes not in the expressed_genes table to expressed = FALSE
   missing_genes <- unique(expt[is.na(expt$expressed), ][["measuredGeneSymbol"]])
