@@ -1,2 +1,4 @@
 pred_id pred_col  boolean alpha aggregate_function  fill_value  inverse_predictor pred_name_long  color
 ABC powerlaw.Score  FALSE  0.02 sum 0 FALSE "ABC (powerlaw)"  "steelblue"
+CUSTOM_ABC powerlaw.Score  FALSE  0.02 sum 0 FALSE "ABC (powerlaw)"  "red"
+KRISTY_ABC powerlaw.Score  FALSE  0.02 sum 0 FALSE "ABC (powerlaw)"  "yellow"

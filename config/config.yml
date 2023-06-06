@@ -4,12 +4,15 @@ comparisons:
   example:
     pred:
       ABC: "resources/example/ABC_K562_Fulco2019Genes_GRCh38.tsv.gz"
+      # CUSTOM_ABC: "/oak/stanford/groups/engreitz/Users/atan5133/results_all_chr_K562_HiC_default/K562/Predictions/EnhancerPredictionsAllPutative.txt.gz"
+      KRISTY_ABC: "/oak/stanford/groups/engreitz/Projects/Benchmarking/Predictors/K562_ABC//Predictions/EnhancerPredictionsAllPutative.txt.gz"
     expt: "resources/example/EPCrisprBenchmark_Fulco2019_K562_GRCh38.tsv.gz"
     gene_universe: "resources/genome_annotations/RefSeqCurated.170308.bed.CollapsedGeneBounds.hg38.bed"
     tss_universe:  "resources/genome_annotations/RefSeqCurated.170308.bed.CollapsedGeneBounds.hg38.TSS500bp.bed"
     pred_config: "resources/example/pred_config.txt"
     cell_type_mapping: 
       ABC: "resources/example/ABC_cell_type_mapping.txt"
+      KRISTY_ABC: "resources/example/ABC_cell_type_mapping.txt"
     dist_bins_kb: [0, 20, 100, 2500]
     gene_features: Null
     enh_features: Null
