@@ -80,7 +80,7 @@ annotate_enh_features <- function(merged, enh_features) {
   
   # add overlaps to original merged data to create output
   output <- merge(merged, cre_overlaps, by = "cre_id")
-  output <- output[, -"cre_id"]
+  output <- select(output, -cre_id)
   
   return(output)
   
@@ -135,7 +135,7 @@ annotate_enh_assays <- function(merged, enh_assays, normalize = TRUE) {
     left_join(x = merged, y = ., by = "cre_id")
   
   # remove cre_id column 
-  output <- output[, -"cre_id"]
+  output <- select(output, -cre_id)
   
   return(output)
   

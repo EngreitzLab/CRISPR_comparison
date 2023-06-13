@@ -1,29 +1,27 @@
 name: r_crispr_comparison
 channels:
-  - bioconda
   - conda-forge
+  - bioconda
   - defaults
   - r
 dependencies:
   - python=3.9.1
-  - wbuild=1.8.0
   - pandoc=2.18
   - r-base=4.1.1
-  - r-r.utils=2.11.0
-  - r-data.table=1.14.2
-  - r-tidyverse=1.3.1
+  - r-r.utils=2.12.2
+  - r-data.table=1.14.8
+  - r-tidyverse=1.3.2
   - r-cowplot=1.1.1
-  - r-ggpubr=0.4.0
-  - r-ggcorrplot=0.1.3
+  - r-ggpubr=0.6.0
+  - r-ggcorrplot=0.1.4
   - r-upsetr=1.4.0
-  - r-plotly=4.10.0
   - r-rocr=1.0_11
   - r-catools=1.18.2
   - r-boot=1.3_28.1
-  - r-dt=0.22
-  - r-rmarkdown=2.13
-  - r-bookdown=0.25
-  - r-optparse=1.7.1
+  - r-dt=0.28
+  - r-rmarkdown=2.21
+  - r-bookdown=0.34
+  - r-optparse=1.7.3
   - bioconductor-genomicranges=1.46.1
   - bioconductor-rtracklayer=1.54.0
   - bioconductor-biocparallel=1.28.3
