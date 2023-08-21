@@ -4,7 +4,7 @@ comparisons:
   example:
     pred:
       ABC: "resources/example/ABC_K562_Fulco2019Genes_GRCh38.tsv.gz"
-    expt: "resources/example/EPCrisprBenchmark_Fulco2019_K562_GRCh38.tsv.gz"
+    expt: "/oak/stanford/groups/engreitz/Projects/Benchmarking/CRISPR_data/EPCrisprBenchmark_ensemble_data_GRCh38.tsv.gz"
     gene_universe: "resources/genome_annotations/RefSeqCurated.170308.bed.CollapsedGeneBounds.hg38.bed"
     tss_universe:  "resources/genome_annotations/RefSeqCurated.170308.bed.CollapsedGeneBounds.hg38.TSS500bp.bed"
     pred_config: "resources/example/pred_config.txt"
