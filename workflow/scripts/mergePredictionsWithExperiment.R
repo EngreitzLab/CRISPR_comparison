@@ -36,11 +36,10 @@ pred_files <- config$pred
 pred_list <- lapply(pred_files, FUN = loadPredictions, show_progress = FALSE)
 
 # load tss and gene universe files
-tss_annot <- fread(snakemake@input$tss_universe)
-colnames(tss_annot) <- c("chrTSS", "startTSS", "endTSS", "gene", "score", "strandTSS")
-tss_annot <- tss_annot[, -c("score", "strandTSS")]
-gene_annot <- fread(snakemake@input$gene_universe)
-colnames(gene_annot) <- c("chr", "start", "end", "gene", "score", "strand")
+tss_annot <- fread(snakemake@input$tss_universe, select = 1:6,
+                   col.names = c("chrTSS", "startTSS", "endTSS", "gene", "score", "strandTSS"))
+gene_annot <- fread(snakemake@input$gene_universe, select = 1:6,
+                    col.names = c("chr", "start", "end", "gene", "score", "strand"))
 
 # load optional cell mapping files if provided
 ct_map_files <- config$cell_type_mapping
