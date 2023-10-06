@@ -84,6 +84,10 @@ code for this predictor depends on its content:
  * inverse_predictor: Set to TRUE if lower values of the predictor signify more confidence in the
  prediction. This is appropriate for predictors such as linear distance or pvalue.
  * pred_name_long: A pretty name (2-3 words) for the predictor to make plots and tables look nicer.
+ * color: R color name or hex code to use in plots for the predictor. If NA while colors for other
+ predictors are set, this color will be gray. If all colors are NA, the pipeline will pick some
+ colors.
+ * plot_crispr: (optional column, TRUE/FALSE) Should this predictor be included in the results?
  
 See `resources/example/pred_config.txt` for an example. If this file is left out (`NULL` in 
 `config.txt`), a file with default values will be generated, however they might not be appropriate
