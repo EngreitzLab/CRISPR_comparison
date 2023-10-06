@@ -8,21 +8,10 @@ library(ggcorrplot)
 ## WORK IN PROGRESS CODE ===========================================================================
 
 # make performance (AUPRC) per subset plot
-plotPerfSubsets <- function(merged, pred_config, subset_col, metric = c("auprc", "precision"),
-                            subset_name = subset_col, title = NULL, thresholds = NULL,
-                            pos_col = "Regulated", bs_iter = 1000, all = TRUE) {
+plotPerfSubsets <- function(perf, pred_config, subset_name = NULL, title = NULL) {
   
-  # compute bootstrapped performance for each subset and entire dataset if specified
-  perf <- compute_performance_subsets(merged, pred_config = pred_config, subset_col = subset_col,
-                                      metric = metric, thresholds = thresholds, pos_col = pos_col,
-                                      bs_iter = bs_iter, all = all)
-  
-  # count the number of positive and negative E-G pair for each subset
-  pairs_subsets <- count_pairs_subset(merged, subset_col = subset_col, pos_col = pos_col, all = all)
-  
-  # add number of E-G pairs per bin and create labels for subsets
+  # create prettier labels for subsets in plots
   perf <- perf %>% 
-    left_join(pairs_subsets, by = "subset") %>% 
     mutate(subset_label = paste0(subset, "\n", pos, "\n", neg)) %>% 
     mutate(subset_label = fct_inorder(subset_label))
   
@@ -40,15 +29,16 @@ plotPerfSubsets <- function(merged, pred_config, subset_col, metric = c("auprc",
   pred_colors <- deframe(select(pred_config, pred_name_long, color))
   
   # create title and x axis label
+  if (is.null(subset_name)) subset_name <- unique(perf$subset_col)
   x_label <- paste0(subset_name, "\nCRISPRi positives\nCRISPRi negatives")
-  if (is.null(title)) title <- paste(metric, "vs.", subset_name)
+  if (is.null(title)) title <- paste(unique(perf$metric), "vs.", subset_name)
   
   # make performance as function of distance plot
   ggplot(perf, aes(x = subset_label, y = full, fill = pred_name_long)) +
     geom_bar(stat = "identity", position = position_dodge()) +
     geom_errorbar(aes(ymin = lower, ymax = upper), position = position_dodge(width = 0.9),
                   color = "black", width = 0.25) +
-    labs(fill = "Predictor", x = x_label, y = metric, title = title) +
+    labs(fill = "Predictor", x = x_label, y = unique(perf$metric), title = title) +
     scale_fill_manual(values = pred_colors[levels(perf$pred_name_long)]) + 
     scale_y_continuous(limits = c(0, 1)) +
     theme_bw() +
@@ -57,8 +47,12 @@ plotPerfSubsets <- function(merged, pred_config, subset_col, metric = c("auprc",
 }
 
 # compute bootstrapped performance on subsets (and whole dataset if all == TRUE)
-compute_performance_subsets <- function(merged, pred_config, subset_col, metric, thresholds,
-                                        pos_col, bs_iter, all = TRUE) {
+computePerfSubsets <- function(merged, pred_config, subset_col, metric = c("auprc", "precision"),
+                               thresholds = NULL, pos_col = "Regulated",
+                               bs_iter = 1000, all = TRUE) {
+  
+  # process metric argument
+  metric <- match.arg(metric)
   
   # compute and bootstrap performance on subsets
   perf_subsets <- merged %>%
@@ -76,6 +70,13 @@ compute_performance_subsets <- function(merged, pred_config, subset_col, metric,
       mutate(subset = "All", .before = 1) %>% 
       bind_rows(., perf_subsets)
   }
+  
+  # count the number of positive and negative E-G pair for each subset and add to performance table
+  pairs_subsets <- count_pairs_subset(merged, subset_col = subset_col, pos_col = pos_col, all = all)
+  perf_subsets <- left_join(perf_subsets, pairs_subsets, by = "subset")
+  
+  # add used subset column to table
+  perf_subsets <- mutate(perf_subsets, subset_col = subset_col, .before = 1)
   
   return(perf_subsets)
   
@@ -411,7 +412,7 @@ makePRCurvePlot <- function(pr_df, pred_config, n_pos, pct_pos, min_sensitivity 
     labs(title = plot_name, x  = paste0("Recall (n=", n_pos, ")"), y = "Precision",
          color = "Predictor") + 
     coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) + 
-    scale_color_manual(values = colors) +
+    scale_color_manual(values = colors, breaks = names(colors)) +
     theme_bw() +
     theme(text = element_text(size = text_size))
   

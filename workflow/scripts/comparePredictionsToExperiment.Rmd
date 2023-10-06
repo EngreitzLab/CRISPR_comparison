@@ -10,12 +10,12 @@ output:
 ---
 
 ```{r setupDocument, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 # save.image("comp.rda")
 # stop()
 ```
 
-```{r attachPackages, message=FALSE, warning=FALSE}
+```{r attachPackages}
 # attach required packages and functions
 library(tidyverse)
 library(cowplot)
@@ -97,7 +97,7 @@ savePlotList(overlap_plots, basename = "expt_pred_overlaps.pdf", path = plotdir,
              width = 7)
 ```
 
-```{r results='asis', fig.cap=cap, fig.height=3.5, fig.width=7, warning=FALSE}
+```{r results='asis', fig.cap=cap, fig.height=3.5, fig.width=7}
 # print plots for every cell type in tabs
 printTabbedPlots(overlap_plots, section_level = "#")
 
@@ -135,7 +135,7 @@ write_tsv(perf_summary,
           file = file.path(dirname(snakemake@output[[1]]), "performance_summary.txt"))
 ```
 
-```{r plotPRC, warning=FALSE}
+```{r plotPRC}
 # calculate number and percentage of experimental true positives in the experimental dataset
 n_pos <- applyCellTypes(merged, .fun = calcNPos, pos_col = pos_col)
 pct_pos <- applyCellTypes(merged, .fun = calcPctPos, pos_col = pos_col)
@@ -150,18 +150,18 @@ pct_pos <- pct_pos[names(pr)]
 pr_plots <- mapply(FUN = makePRCurvePlot, pr_df = pr, n_pos = n_pos, pct_pos = pct_pos, plot_name = pr_title,
                    MoreArgs = list(pred_config = pred_config,
                                    min_sensitivity = snakemake@params$min_sensitivity,
-                                   line_width = 1.2, point_size = 3.5,
+                                   line_width = 0.8, point_size = 3,
                                    text_size = 13, colors = pred_colors),
                    SIMPLIFY = FALSE)
 
 # save plots to files
 savePlotList(pr_plots, basename = "prc_full_expt_data.pdf", path = plotdir, height = 4.5,
-             width = 7.5)
+             width = 8)
 ```
 
 ## Precision-recall curves {.tabset .tabset-pills}
 
-```{r results='asis', fig.cap=cap, fig.height=4.5, fig.width=7.5, warning=FALSE}
+```{r results='asis', fig.cap=cap, fig.height=4.5, fig.width=8}
 # print plots for every cell type in tabs
 printTabbedPlots(pr_plots, section_level = "##")
 
@@ -175,7 +175,7 @@ cap <- paste("Precision-recall curves for all predictors in all matching experim
 
 ## Performance summary
 
-```{r perfSummary, fig.cap = cap}
+```{r perfSummary, fig.cap=cap}
 # pretty-print PR summary table for report
 perf_summary  %>% 
   select(-pred_uid) %>%
@@ -243,7 +243,7 @@ cap <- paste("Predictors versus CRISPRi effect size. Effect size is defined as p
 The scores of each predictor is compared between experimental positives and negatives to get another
 assessment of how well it distinguishes true enhancer - gene pairs from negatives.
 
-```{r, warning=FALSE}
+```{r}
 # create plots showing predictor values as a function of experimental outcome
 pred_plots <- applyCellTypes(merged, .fun = plotPredictorsVsExperiment, pos_col = pos_col,
                              pred_names_col = "pred_name_long", text_size = 13)
@@ -258,7 +258,7 @@ savePlotList(pred_plots, basename = "predictor_vs_experiment.pdf", path = plotdi
              height = plot_height, width = plot_width)
 ```
 
-```{r, results='asis', fig.cap=cap, fig.height=plot_height, fig.width=plot_width, warning=FALSE}
+```{r, results='asis', fig.cap=cap, fig.height=plot_height, fig.width=plot_width}
 # print plots for every cell type in tabs
 printTabbedPlots(pred_plots, section_level = "#")
 
@@ -331,12 +331,20 @@ if (length(invalid_bins) > 0) {
 ```
 
 ## AUPRC as function of distance {.tabset .tabset-pills}
-```{r AUPRCVsDist, message=FALSE, warning=FALSE}
+```{r AUPRCVsDist}
+# compute performance as a function of distance to TSS
+dist_perf <- applyCellTypes(merged_bins_filt, .fun = computePerfSubsets, pred_config = pred_config,
+                            subset_col = "distToTSS (bins)", metric = "auprc", pos_col = pos_col,
+                            bs_iter = 1000)
+
+# create table of performance across distance
+dist_perf_tbl <- bind_rows(dist_perf, .id = "cell_type")
+write_tsv(dist_perf_tbl,
+          file = file.path(dirname(snakemake@output[[1]]), "performance_summary_distance_binned.txt"))
+
 # plot performance as a function of distance to TSS
-dist_auprc <- applyCellTypes(merged_bins_filt, .fun = plotPerfSubsets, pred_config = pred_config,
-                             subset_col = "distToTSS (bins)", metric = "auprc",
-                             subset_name = "Distance to TSS (kb)",
-                             title = "AUPRC vs. distance to TSS", pos_col = pos_col, bs_iter = 1000)
+dist_auprc <- lapply(dist_perf, FUN = plotPerfSubsets, pred_config = pred_config,
+                     subset_name = "Distance to TSS (kb)", title = "AUPRC vs. distance to TSS")
 
 # save distance prc plots to files
 savePlotList(dist_auprc, basename = "distance_auprc.pdf", path = plotdir, height = 5, width = 8)
@@ -351,7 +359,7 @@ cap <- paste("Area under the Precision-Recall Curve (AUPRC) for different distan
 ```
 
 ## Precision-recall curves {.tabset .tabset-pills}
-```{r PRCVsDist, warning=FALSE}
+```{r PRCVsDist}
 # count the number of distance bins to set number of rows in plot grid
 n_bins <- n_distinct(merged_bins_filt$`distToTSS (bins)`)
 nrow <- ceiling(n_bins / 2)
@@ -361,12 +369,12 @@ dist_prc_plots <- applyCellTypes(merged_bins_filt, .fun = makePRCurveSubsets,
                                  subset_cols = "distToTSS (bins)", pred_config = pred_config,
                                  pos_col = pos_col,
                                  min_sensitivity = snakemake@params$min_sensitivity,
-                                 line_width = 1.2, point_size = 3.5, text_size = 13, nrow = nrow,
+                                 line_width = 0.8, point_size = 3, text_size = 13, nrow = nrow,
                                  colors = pred_colors)
 
 # calculate plot dimensions based on number of features
 plot_height <- nrow * 4
-plot_width <- ceiling(n_bins / nrow) * 6
+plot_width <- ceiling(n_bins / nrow) * 7
 
 # save distance prc plots to files
 savePlotList(dist_prc_plots, basename = "distance_binned_prc.pdf", path = plotdir,
@@ -382,7 +390,7 @@ cap <- paste("Precision-Recall curves for different distance to TSS bins (kb).")
 ```
 
 ## Predictor scores versus experimental outcome {.tabset .tabset-pills}
-```{r PredVsExpVsDist, warning=FALSE}
+```{r PredVsExpVsDist}
 # create plots showing predictor values as a function of experimental outcome
 dist_pred_plots <- applyCellTypes(merged_bins_filt, .fun = plotPredVsExperimentSubsets,
                                   subset_cols = "distToTSS (bins)", pos_col = pos_col,
@@ -407,7 +415,7 @@ cap <- paste("Predictor scores versus experimental outcome for different distanc
 ```
 
 ## Effect size vs predictors {.tabset .tabset-pills}
-```{r EsVsPredVsDist, warning=FALSE}
+```{r EsVsPredVsDist}
 # create plots showing effect size as function of predictor scores
 dist_es_plots <- applyCellTypes(merged_bins_filt, .fun = predVsEffectSizeSubsets,
                                 subset_cols = "distToTSS (bins)", pos_col = pos_col,
@@ -488,7 +496,7 @@ if (length(enh_feat_cols) > 0) {
 ## Precision-recall curves
 
 ### Gene features {.tabset .tabset-pills}
-```{r geneFeaturePRC, warning=FALSE}
+```{r geneFeaturePRC}
 if (length(gene_feat_cols) > 0) {
  
   # create subset plots for all cell types
@@ -518,7 +526,7 @@ if (length(gene_feat_cols) > 0) {
 ```
 
 ### Enhancer features {.tabset .tabset-pills}
-```{r enhFeaturePRC, warning=FALSE}
+```{r enhFeaturePRC}
 if (length(enh_feat_cols) > 0) {
   
   # create subset plots for all cell types

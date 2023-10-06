@@ -101,7 +101,9 @@ qcPredConfig <- function(pred_config, pred_list) {
   # check that all predictors in pred_list are found in the pred_config file
   missing_preds <- setdiff(names(pred_list), pred_config$pred_id)
   if (length(missing_preds) > 0) {
-    stop("Not all predictors in prediction files are listed in pred_config!", call. = FALSE)
+    missing_preds <- paste(missing_preds, collapse = ", ")
+    stop("Not all predictors in prediction files are listed in pred_config: ", missing_preds,
+         call. = FALSE)
   }
   
   # check that pred_id and pred_col create a unique identifier
