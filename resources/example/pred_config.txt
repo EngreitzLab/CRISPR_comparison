@@ -1,2 +1,3 @@
 pred_id pred_col  boolean alpha aggregate_function  fill_value  inverse_predictor pred_name_long  color
-encode_ABC ABC.Score  FALSE  0.02 sum 0 FALSE "encode_ABC (ABC)"  "red"
+dev_k562 ABC.Score  FALSE  0.02 sum 0 FALSE "dev_k562_ABC (ABC)"  "red"
+atac ABC.Score  FALSE  0.02 sum 0 FALSE "atac (ABC)"  "blue"
