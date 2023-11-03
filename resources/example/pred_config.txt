@@ -1,3 +1,8 @@
 pred_id pred_col  boolean alpha aggregate_function  fill_value  inverse_predictor pred_name_long  color
-dev_k562 ABC.Score  FALSE  0.02 sum 0 FALSE "dev_k562_ABC (ABC)"  "red"
-atac ABC.Score  FALSE  0.02 sum 0 FALSE "atac (ABC)"  "blue"
+dev_hic ABC.Score  FALSE  0.02 max 0 FALSE "dev_hic (ABC)"  "blue"
+dev_hic_megamap ABC.Score  FALSE  0.02 max 0 FALSE "dev_hic_megamap (ABC)"  "green"
+dev_avg_hic ABC.Score  FALSE  0.02 max 0 FALSE "dev_avg_hic_ABC (ABC)"  "red"
+dev_pl powerlaw.Score  FALSE  0.02 max 0 FALSE "dev_pl_ABC (ABC)"  "yellow"
+dev_activity_only normalized_dhs  FALSE  0.02 max 0 FALSE "dev_activity_only (ABC)"  "pink"
+
+

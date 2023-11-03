@@ -3,13 +3,18 @@
 comparisons:
   example:
     pred:
-      dev: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/results_dev_08_24_double_x/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
-      atac: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/results_dev_08_24_double_x/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
+      dev_hic: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/results_dev_11_2_hic_direct_read/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
+      dev_activity_only: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/results_dev_11_2_hic_direct_read/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
+      dev_hic_megamap: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/results_dev_11_2_hic_direct_read_megamap/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
+      dev_avg_hic: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/results_dev_11_03_dev_avg_hic/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
+      dev_pl: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/results_dev_11_03_dev_pl/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
     expt: "/oak/stanford/groups/engreitz/Projects/Benchmarking/CRISPR_data/EPCrisprBenchmark_ensemble_data_GRCh38.tsv.gz"
     gene_universe: "resources/genome_annotations/CollapsedGeneBounds.hg38.bed"
     tss_universe:  "resources/genome_annotations/CollapsedGeneBounds.hg38.TSS500bp.bed"
     pred_config: "resources/example/pred_config.txt"
     cell_type_mapping: 
+      dev_avg_hic: "resources/example/avg_hic_mapping.txt"
+      dev_pl: "resources/example/pl_mapping.txt"
     dist_bins_kb: [0, 20, 100, 2500]
     gene_features: Null
     enh_features: Null
