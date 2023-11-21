@@ -21,14 +21,20 @@ Other notes:
  * Inputs (see below for formats):
  	* One experimental data file 
  	* At least one predictions file
- 	* (optional) Configuration file describing metadata of predictors, including how to aggreagate
+ 	* (optional) Configuration file describing metadata of predictors, including how to aggregate
   multiple predicted enhancers overlapping one experimental enhancer
  	* (optional) Cell type mappings between cell types in predictions and experiment
  	
 ### Dependencies
-Dependencies are automatically handled via conda when executing the workflow via snakemake (see
-below). Conda environment files can be found in `workflow/envs`. If comparisons are performed
-without conda, following R dependencies are required:
+Running the workflow requires that
+[snakemake (>=5.10.0)](https://snakemake.readthedocs.io/en/stable/index.html) and conda
+(e.g. [miniconda](https://docs.conda.io/en/latest/miniconda.html)) are installed.
+
+Other dependencies are automatically installed via conda when executing the workflow via snakemake
+with the `--use-conda` flag (see below) for the first time. Time to install dependencies depends on
+your system, but shouldn't take more than 30 minutes. Conda environment files can be found in
+`workflow/envs`. If the snakemake workflow is used without conda, following R dependencies are
+required:
 
 ```sh
 # base R:
@@ -55,17 +61,40 @@ rtracklayer (>=1.54.0)
 BiocParallel (>=1.28.3)
 ```
 
-## File Formats
+## Running an example comparison
+A small example comparison can be performed using the following command. This also uses conda to
+install all dependencies other than snakemake and conda.
+```sh
+# perform example comparison specified in config.yml (-n = dryrun, remove for execution)
+snakemake --use-conda results/example/example_crispr_comparison.html -j1 -n
+```
 
-* Experimental Data
-  * <https://docs.google.com/spreadsheets/d/1xold84upBFigZPFQGUMeNC5t2id-Bub_Y1o5Xid_MHw/edit?usp=sharing>. 
-  * See `resources/example/experimental_data_chrX.txt.gz` as an example.
+All generated output including the main .html output file with the benchmarking results will are
+saved to `results/example/`.
+
+## Benchmarking other E-G predictive models
+To benchmark the performance of E-G predictive models against CRISPR datasets, files containing
+predictions and CRISPR data are required. The repository contains a K562 CRISPR benchmarking dataset
+generated from combining results from different published experiments (see:
+https://github.com/argschwind/ENCODE_CRISPR_data), which can be used to benchmark K562 E-G
+predictions.
+
+### Input file Formats
+
+* Experimental data
+  * <https://docs.google.com/spreadsheets/d/1xold84upBFigZPFQGUMeNC5t2id-Bub_Y1o5Xid_MHw/edit?usp=sharing>.
+  * Use `resources/crispr_data/EPCrisprBenchmark_ensemble_data_GRCh38.tsv.gz` as an example.
 
 * Predictions
   * <https://docs.google.com/spreadsheets/d/1xold84upBFigZPFQGUMeNC5t2id-Bub_Y1o5Xid_MHw/edit?usp=sharing>
-  * See `resources/example/K562_ABC_K562HiC_chrx.txt.gz` as an example. 
+  * See `resources/example/K562_ABC_K562HiC_chrx.txt.gz` as an example.
 
-## Configuring the snakemake workflow
+Cross-validated ENCODE-rE2G predictions from
+[Gschwind et al., 2023](https://www.biorxiv.org/content/10.1101/2023.11.09.563812v1) for
+benchmarking against the provided CRISPR dataset can be found here:
+https://www.synapse.org/#!Synapse:syn53018671
+
+### Configuring the snakemake workflow
 The `config/config.yml` file is used to specify comparisons that should be performed. See the
 comparison `"example"` in this file as an example. In addition to the predictions and experiment
 input files, each comparison can take a prediction config file (pred_config) in .txt format as input.
@@ -93,16 +122,14 @@ See `resources/example/pred_config.txt` for an example. If this file is left out
 `config.txt`), a file with default values will be generated, however they might not be appropriate
 for the provided predictors.
 
-## Sample command
-Following command can be used to perform all specified comparisons using snakemake with conda to
-automatically handle dependencies. This requires that snakemake (>=5.10.0) and conda
-(e.g. [miniconda](https://docs.conda.io/en/latest/miniconda.html)) are installed.
-
+### Running the workflow
+Following command can be used to perform all specified comparisons. Run time per comparison depends
+on the number and file size of the included predictions, but should typically take less than
+30 minutes.
 ```sh
 # perform all comparisons specified in config.yml (-n = dryrun, remove for execution)
 snakemake --use-conda -j1 -n
 ```
 
-All generated output including the main .html document are saved to `results/example/`. For other 
-comparison, the subdirectory in results will be named after the comparison name as specified in the
-`config.yml` file.
+All generated output including the main .html document are saved to `results/` in subdirectories 
+named after the comparison name as specified in the `config.yml` file.

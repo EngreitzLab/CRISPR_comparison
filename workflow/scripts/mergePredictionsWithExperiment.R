@@ -61,7 +61,7 @@ if (!is.null(snakemake@input$expressed_genes)) {
 qcPredConfig(pred_config, pred_list = pred_list)
 
 # QC predictions and experimental data
-qcPredictions(pred_list, pred_config = pred_config, one_tss = FALSE)
+pred_list <- qcPredictions(pred_list, pred_config = pred_config, one_tss = FALSE)
 expt <- qcExperiment(expt, pos_col = snakemake@params$pos_col, remove_na_pos = TRUE)
 
 ## process input data ------------------------------------------------------------------------------

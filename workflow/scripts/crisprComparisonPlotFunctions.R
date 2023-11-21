@@ -8,7 +8,7 @@ library(ggcorrplot)
 ## WORK IN PROGRESS CODE ===========================================================================
 
 # make performance (AUPRC) per subset plot
-plotPerfSubsets <- function(perf, pred_config, subset_name = NULL, title = NULL) {
+plotPerfSubsets <- function(perf, pred_config, subset_name = NULL, title = NULL, order = NULL) {
   
   # create prettier labels for subsets in plots
   perf <- perf %>% 
@@ -18,12 +18,17 @@ plotPerfSubsets <- function(perf, pred_config, subset_name = NULL, title = NULL)
   # add pretty names for predictors
   perf <- left_join(perf, select(pred_config, pred_uid, pred_name_long), by = c("id" = "pred_uid"))
   
-  # order predictors according AUPRC on whole dataset
-  perf <- perf %>% 
-    filter(subset == "All") %>% 
-    select(id, full_all = full) %>% 
-    left_join(perf, .,  by = "id") %>%
-    mutate(pred_name_long = fct_reorder(pred_name_long, .x = full_all, .desc = TRUE))
+  # order predictors according AUPRC on whole dataset or based on provided order
+  if (is.null(order)) {
+    perf <- perf %>% 
+      filter(subset == "All") %>% 
+      select(id, full_all = full) %>% 
+      left_join(perf, .,  by = "id") %>%
+      mutate(pred_name_long = fct_reorder(pred_name_long, .x = full_all, .desc = TRUE))
+  } else {
+    perf <- perf %>% 
+      mutate(pred_name_long = factor(pred_name_long, levels = order))
+  }
   
   # get color for each predictor
   pred_colors <- deframe(select(pred_config, pred_name_long, color))

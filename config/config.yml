@@ -11,6 +11,7 @@ comparisons:
     cell_type_mapping: 
       ABC: "resources/example/ABC_cell_type_mapping.txt"
     dist_bins_kb: [0, 20, 100, 2500]
+    expressed_genes: "resources/genomic_features/K562_expressed_genes.tsv"
     gene_features: Null
     enh_features: Null
     enh_assays: Null
