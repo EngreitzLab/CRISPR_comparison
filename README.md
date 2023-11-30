@@ -1,3 +1,5 @@
+[![snakemake](https://img.shields.io/badge/snakemake-%E2%89%A55.10.0-brightgreen.svg)](https://snakemake.readthedocs.io/en/stable/index.html)
+
 # Benchmark enhancer-gene prediction models against CRISPR data
 
 This workflow is designed to evaluate the performance of an enhancer-gene linking model against
@@ -6,7 +8,7 @@ against a single experimental data file. Comparing performance of a single predi
 multiple experiments currently not supported.
 
 Fundamentally, the idea is to overlap each experimentally tested element-gene-celltype tuple with a
-predicted element-gene-celltype tuple. Diagnostic plots such as PR curves are then produced on this
+predicted element-gene-cell type tuple. Diagnostic plots such as PR curves are then produced on this
 overlapped dataset. Care must be taken when an experimentally tested element overlaps multiple
 predicted elements, or when an experimentally tested element does not overlap any predicted
 elements. See the configuration section below for how to handle these cases. 
