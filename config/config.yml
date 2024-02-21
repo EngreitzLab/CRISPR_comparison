@@ -3,13 +3,17 @@
 comparisons:
   example:
     pred:
-      dev: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/results_dev_08_24_double_x/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
-      atac: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/results_dev_08_24_double_x/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
+      dhs: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/ENCODE_rE2G/results/DNase_intact/Predictions/encode_e2g_predictions.tsv.gz"
+      encode_dhs_hic: "/oak/stanford/groups/engreitz/Users/atan5133/encode_dataset_processing/results/dhs_hic/K562_ENCSR000EOT_ENCFF621AIY/Predictions/encode_e2g_predictions.tsv.gz"
+      encode_dhs_only: "/oak/stanford/groups/engreitz/Users/atan5133/encode_dataset_processing/results/dhs_only/K562_ENCSR000EOT/Predictions/encode_e2g_predictions.tsv.gz"
     expt: "/oak/stanford/groups/engreitz/Projects/Benchmarking/CRISPR_data/EPCrisprBenchmark_ensemble_data_GRCh38.tsv.gz"
     gene_universe: "resources/genome_annotations/CollapsedGeneBounds.hg38.bed"
     tss_universe:  "resources/genome_annotations/CollapsedGeneBounds.hg38.TSS500bp.bed"
     pred_config: "resources/example/pred_config.txt"
     cell_type_mapping: 
+      dhs: "resources/example/dhs_only.txt"
+      encode_dhs_hic: "resources/example/atac_w_dhs.txt"
+      encode_dhs_only: "resources/example/v2_dhs_only.txt"
     dist_bins_kb: [0, 20, 100, 2500]
     gene_features: Null
     enh_features: Null
