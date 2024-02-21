@@ -53,6 +53,9 @@ if (all(is.na(pred_config$color))) {
 
 # column identifying experimental positives
 pos_col <- snakemake@params$pos_col
+
+# directory to save plots in addition to adding them to report
+plotdir <- file.path(dirname(snakemake@output[[1]]), "plots")
 ```
 
 This is the output for the comparison **`r snakemake@wildcards$comparison`**. Following analyses
@@ -87,10 +90,6 @@ predicted. Large fractions of CRISPR E-G pairs not overlapping predictions lead 
 ```{r overlaps, fig.height=5, fig.width=7}
 # count and plot number of CRISPR E-G pairs overlapping prediction E-G pairs
 overlap_plots <- applyCellTypes(merged, .fun = plotOverlaps)
-
-# directory to save plots in addition to adding them to report
-plotdir <- file.path(dirname(snakemake@output[[1]]), "plots")
-dir.create(plotdir, recursive = TRUE, showWarnings = FALSE)
 
 # save plots to files
 savePlotList(overlap_plots, basename = "expt_pred_overlaps.pdf", path = plotdir, height = 3.5,
@@ -290,7 +289,8 @@ dist_bins <- merged %>%
   select(name, `distToTSS (bins)`)
 
 # add distance bins to merged
-merged_bins <- left_join(merged, dist_bins, by = "name") %>% 
+merged_bins <- merged %>% 
+  left_join(dist_bins, by = "name") %>% 
   filter(!is.na(`distToTSS (bins)`))
 
 # get unique experimentally tested pairs (TODO: implement count_pairs_subset() for this)
@@ -321,7 +321,9 @@ invalid_bins <- crispr_pos_neg_pairs %>%
   pull(`distToTSS (bins)`)
 
 # remove these from merged data, since performance can't be assessed for these
-merged_bins_filt <- filter(merged_bins, !`distToTSS (bins)` %in% invalid_bins)
+merged_bins_filt <- merged_bins %>% 
+  filter(!`distToTSS (bins)` %in% invalid_bins) %>% 
+  mutate(`distToTSS (bins)` = droplevels(`distToTSS (bins)`))
 
 # report if any bins are removed
 if (length(invalid_bins) > 0) {
@@ -331,7 +333,7 @@ if (length(invalid_bins) > 0) {
 ```
 
 ## AUPRC as function of distance {.tabset .tabset-pills}
-```{r AUPRCVsDist}
+```{r AUPRCVsDist, warning=FALSE}
 # compute performance as a function of distance to TSS
 dist_perf <- applyCellTypes(merged_bins_filt, .fun = computePerfSubsets, pred_config = pred_config,
                             subset_col = "distToTSS (bins)", metric = "auprc", pos_col = pos_col,

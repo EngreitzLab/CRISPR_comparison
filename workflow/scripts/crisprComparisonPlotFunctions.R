@@ -800,7 +800,7 @@ predVsEffectSizeSubsets <- function(merged, subset_cols, pos_col, pred_names_col
 
 # get all cell types in merged data. if there are multiple cell types and if combined = TRUE add
 # "combined" to include a set of all cell types combined
-getCellTypes <- function(merged, cell_types_col = "ExperimentCellType", combined = TRUE) {
+getCellTypes <- function(merged, cell_types_col, combined) {
   
   # get all cell types in merged data (remove any NAs)
   cell_types <- unique(merged[[cell_types_col]])
@@ -817,25 +817,49 @@ getCellTypes <- function(merged, cell_types_col = "ExperimentCellType", combined
 }
 
 # get data for a specified cell type or all if cell_type == "combined"
-getCellTypeData <- function(df, cell_type, cell_types_col = "ExperimentCellType") {
+getCellTypeData <- function(df, cell_type, cell_types_col) {
   df[df[[cell_types_col]] %in% cell_type, ]
 }
 
 # helper function to apply a function to one cell type in merged data
-applyCellType <- function(cell_type, merged, .fun, ..., cell_types_col = "ExperimentCellType") {
+applyCellType <- function(cell_type, merged, .fun, ..., cell_types_col) {
+  
+  # get data for the given cell type
   merged_cell_type <- getCellTypeData(merged, cell_type = cell_type, cell_types_col = cell_types_col)
-  .fun(merged_cell_type, ...)
+  
+  # try to apply the specified function and capture any errors and warnings
+  output <- tryCatch(
+    withCallingHandlers({
+      .fun(merged_cell_type, ...)
+    }, warning = function(w) {
+      message("For cell type ", cell_type, ": ", w)
+      invokeRestart("muffleWarning")
+    }), error = function(e) {
+      message("For cell type ", cell_type, ": ", e)
+      return(NULL)
+    })
+  
+  return(output)
+  
 }
 
 # simple wrapper to apply a function to all cell types in merged data
 applyCellTypes <- function(merged, .fun, ..., cell_types_col = "ExperimentCellType",
-                           combined = TRUE) {
+                           combined = TRUE, remove_failed = TRUE) {
   
   # get all cell types in merged data
   cell_types <- getCellTypes(merged, cell_types_col = cell_types_col, combined = combined)
   
   # apply function to all cell types
-  lapply(cell_types, FUN = applyCellType, merged = merged, .fun = .fun, ...)
+  output <- lapply(cell_types, FUN = applyCellType, merged = merged, .fun = .fun, ...,
+                   cell_types_col = cell_types_col)
+  
+  # remove output for any cell types where function failed
+   if (remove_failed == TRUE) {
+     output <- output[!vapply(output, FUN = is.null, FUN.VALUE = logical(1))]
+   }
+  
+  return(output)
   
 }
 
@@ -874,11 +898,17 @@ makeScatterPlots <- function(df, x_col, y_col, color_col = NULL, x_lab = NULL, y
   
 }
 
-# save a list of plots to output files (... can be any argument for ggsave)
-savePlotList <- function(plot_list, basename, ...) {
+# save a list of plots to output files (... can be any other argument for ggsave)
+savePlotList <- function(plot_list, basename, path = ".", ...) {
   
   # output filenames for plots
-  outfiles <- paste(names(plot_list), basename, sep = ".")
+  outfiles <- paste(rep(path, times = length(plot_list)), names(plot_list),
+                    rep(basename, times = length(plot_list)), sep = "/")
+  
+  # create required directories if needed
+  for (i in dirname(outfiles)) {
+    dir.create(i, recursive = TRUE, showWarnings = FALSE)
+  }
   
   # save list of plots to output files
   invisible(mapply(FUN = ggsave, outfiles, plot_list, MoreArgs = list(...)))
