@@ -1,3 +1,13 @@
 pred_id pred_col  boolean alpha aggregate_function  fill_value  inverse_predictor pred_name_long  color
-dev_k562 ABC.Score  FALSE  0.02 sum 0 FALSE "dev_k562_ABC (ABC)"  "red"
-atac ABC.Score  FALSE  0.02 sum 0 FALSE "atac (ABC)"  "blue"
+K562_dhs_pl ABC.Score  FALSE  0.02 sum 0 FALSE "K562_dhs_pl (ABC)"  NA
+K562_dhs_h3k27ac_pl ABC.Score  FALSE  0.02 sum 0 FALSE "K562_dhs_h3k27ac_pl (ABC)"  NA
+K562_dhs_avg_hic ABC.Score  FALSE  0.02 sum 0 FALSE "K562_dhs_avg_hic (ABC)"  NA
+K562_dhs_h3k27ac_avg_hic ABC.Score  FALSE  0.02 sum 0 FALSE "K562_dhs_h3k27ac_avg_hic (ABC)"  NA
+K562_dhs_intact_hic ABC.Score  FALSE  0.02 sum 0 FALSE "K562_dhs_intact_hic (ABC)"  NA
+K562_dhs_h3k27ac_intact_hic ABC.Score  FALSE  0.02 sum 0 FALSE "K562_dhs_h3k27ac_intact_hic (ABC)"  NA
+K562_atac_pl ABC.Score  FALSE  0.02 sum 0 FALSE "K562_atac_pl (ABC)"  NA
+K562_atac_h3k27ac_pl ABC.Score  FALSE  0.02 sum 0 FALSE "K562_atac_h3k27ac_pl (ABC)"  NA
+K562_atac_avg_hic ABC.Score  FALSE  0.02 sum 0 FALSE "K562_atac_avg_hic (ABC)"  NA
+K562_atac_h3k27ac_avg_hic ABC.Score  FALSE  0.02 sum 0 FALSE "K562_atac_h3k27ac_avg_hic (ABC)"  NA
+K562_atac_intact_hic ABC.Score  FALSE  0.02 sum 0 FALSE "K562_atac_intact_hic (ABC)"  NA
+K562_atac_h3k27ac_intact_hic ABC.Score  FALSE  0.02 sum 0 FALSE "K562_atac_h3k27ac_intact_hic (ABC)"  NA

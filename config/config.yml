@@ -3,13 +3,35 @@
 comparisons:
   example:
     pred:
-      dev: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/results_dev_08_24_double_x/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
-      atac: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/results_dev_08_24_double_x/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
+      K562_dhs_pl: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/current_ABC_results/K562_dhs_pl/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
+      K562_dhs_h3k27ac_pl: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/current_ABC_results/K562_dhs_h3k27ac_pl/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
+      K562_dhs_avg_hic: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/current_ABC_results/K562_dhs_avg_hic/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
+      K562_dhs_h3k27ac_avg_hic: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/current_ABC_results/K562_dhs_h3k27ac_avg_hic/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
+      K562_dhs_intact_hic: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/current_ABC_results/K562_dhs_intact_hic/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
+      K562_dhs_h3k27ac_intact_hic: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/current_ABC_results/K562_dhs_h3k27ac_intact_hic/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
+      K562_atac_pl: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/current_ABC_results/K562_atac_pl/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
+      K562_atac_h3k27ac_pl: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/current_ABC_results/K562_atac_h3k27ac_pl/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
+      K562_atac_avg_hic: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/current_ABC_results/K562_atac_avg_hic/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
+      K562_atac_h3k27ac_avg_hic: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/current_ABC_results/K562_atac_h3k27ac_avg_hic/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
+      K562_atac_intact_hic: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/current_ABC_results/K562_atac_intact_hic/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
+      K562_atac_h3k27ac_intact_hic: "/oak/stanford/groups/engreitz/Users/atan5133/abc_run_comparisons/current_ABC_results/K562_atac_h3k27ac_intact_hic/Predictions/EnhancerPredictionsAllPutative.tsv.gz"
     expt: "/oak/stanford/groups/engreitz/Projects/Benchmarking/CRISPR_data/EPCrisprBenchmark_ensemble_data_GRCh38.tsv.gz"
     gene_universe: "resources/genome_annotations/CollapsedGeneBounds.hg38.bed"
     tss_universe:  "resources/genome_annotations/CollapsedGeneBounds.hg38.TSS500bp.bed"
     pred_config: "resources/example/pred_config.txt"
     cell_type_mapping: 
+      K562_dhs_pl: "resources/example/K562_dhs_pl.txt"
+      K562_dhs_h3k27ac_pl: "resources/example/K562_dhs_h3k27ac_pl.txt"
+      K562_dhs_avg_hic: "resources/example/K562_dhs_avg_hic.txt"
+      K562_dhs_h3k27ac_avg_hic: "resources/example/K562_dhs_h3k27ac_avg_hic.txt"
+      K562_dhs_intact_hic: "resources/example/K562_dhs_intact_hic.txt"
+      K562_dhs_h3k27ac_intact_hic: "resources/example/K562_dhs_h3k27ac_intact_hic.txt"
+      K562_atac_pl: "resources/example/K562_atac_pl.txt"
+      K562_atac_h3k27ac_pl: "resources/example/K562_atac_h3k27ac_pl.txt"
+      K562_atac_avg_hic: "resources/example/K562_atac_avg_hic.txt"
+      K562_atac_h3k27ac_avg_hic: "resources/example/K562_atac_h3k27ac_avg_hic.txt"
+      K562_atac_intact_hic: "resources/example/K562_atac_intact_hic.txt"
+      K562_atac_h3k27ac_intact_hic: "resources/example/K562_atac_h3k27ac_intact_hic.txt"
     dist_bins_kb: [0, 20, 100, 2500]
     gene_features: Null
     enh_features: Null
