@@ -7,6 +7,96 @@ library(ggcorrplot)
 
 ## WORK IN PROGRESS CODE ===========================================================================
 
+# calculate performance metrics using ROCR
+calculatePerformance <- function(merged, pos_col, pred_config, measure, x.measure = NULL) {
+  
+  # split into list for lapply
+  merged_split <- split(merged, f = merged$pred_uid)
+  
+  # get inverse predictors
+  inverse_predictors <- pred_config %>% 
+    select(pred_uid, inverse_predictor) %>% 
+    deframe()
+  
+  # multiply inverse predictors by -1 so that higher value corresponds to higher score
+  inverse_predictors <- inverse_predictors[names(merged_split)]  # same as predictors for cell type
+  merged_split <- mapply(FUN = function(pred, inv_pred) {
+    inv_multiplier <- ifelse(inv_pred, -1, 1)
+    pred$pred_value <- pred$pred_value * inv_multiplier
+    return(pred)
+  }, merged_split, inverse_predictors, SIMPLIFY = FALSE)
+  
+  # compute precision-recall performance for each predictor
+  perf <- lapply(merged_split, FUN = function(p){
+    performance(prediction(p$pred_value, p[[pos_col]]), measure = measure, x.measure = x.measure)
+  })
+  
+  return(perf)
+  
+}
+
+# convert a list of ROCR performance objects into a table
+# TODO: get rid of manual names and use internal names for ROCR performance metrics
+perfToTable <- function(perf_list, measure_name, x.measure_name) {
+  
+  # function to convert one performance object to a table
+  convert_perfToTable <- function(perf, measure_name, x.measure_name) {
+    df <- data.frame(list(
+      alpha = perf@alpha.values[[1]],
+      measure = perf@y.values[[1]],
+      x.measure = perf@x.values[[1]]
+    ))
+    return(df)
+  }
+  
+  # apply to input list
+  perf_list <- lapply(perf_list, convert_perfToTable)
+  
+  # convert list of tables into one table
+  perf_table <- rbindlist(perf_list, idcol = "pred_uid")
+  colnames(perf_table)[colnames(perf_table) == "measure"] <- measure_name
+  colnames(perf_table)[colnames(perf_table) == "x.measure"] <- x.measure_name
+  
+  return(perf_table)
+  
+}
+
+# make a eceiver operating characteristic (ROC) curve
+plotROC <- function(merged, pos_col, pred_config, colors, thresholds = NULL,
+                    plot_name = "ROC curve full experimental data", line_width = 1, 
+                    point_size = 3, text_size = 15) {
+  
+  # compute ROC curve
+  roc <- calculatePerformance(merged, pos_col = pos_col, pred_config = pred_config, measure = "tpr",
+                              x.measure = "fpr")
+  
+  # make ROC table
+  roc <- perfToTable(roc, measure_name = "TPR", x.measure_name = "FPR")
+  
+  # add pretty predictor names to pr_df for plotting
+  roc <- left_join(roc, select(pred_config, pred_uid, pred_name_long), by = "pred_uid")
+  
+  # separate pr data into quantitative and boolean predictors
+  bool_preds <- pull(filter(pred_config, boolean == TRUE), pred_uid)
+  roc_quant <- filter(roc, !pred_uid %in% bool_preds)
+  roc_bool  <- filter(roc, pred_uid %in% bool_preds)
+  
+  # get precision and recall for boolean predictor at alpha 1
+  roc_bool <- filter(roc_bool, alpha == 1)
+
+  # create PRC plot (caution, this assumes that there at least 1 quant and 1 bool predictor!)
+  ggplot(roc_quant, aes(x = FPR, y = TPR, color = pred_name_long)) +
+    geom_line(size = line_width) +
+    geom_point(data = roc_bool, size = point_size) +
+    labs(title = plot_name, x  = "False postitive rate", y = "True postitive rate",
+         color = "Predictor") + 
+    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) + 
+    scale_color_manual(values = colors, breaks = names(colors)) +
+    theme_bw() +
+    theme(text = element_text(size = text_size))
+  
+}
+
 # make performance (AUPRC) per subset plot
 plotPerfSubsets <- function(perf, pred_config, subset_name = NULL, title = NULL, order = NULL) {
   
@@ -970,16 +1060,6 @@ pr2df <- function(pr, calc_f1 = TRUE) {
   return(pr_df)
   
 }
-
-
-
-
-
-
-
-
-
-
 
 # try to compute AUC
 computeAUC <- function(x_vals, y_vals) {

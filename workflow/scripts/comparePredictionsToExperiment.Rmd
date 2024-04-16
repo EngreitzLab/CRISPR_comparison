@@ -202,6 +202,33 @@ cap <- paste("Precision-recall performance summary for predictors. Table shows A
 
 ***
 
+# Receiver Operating Characteristic performance
+Receiver Operating Characteristic (ROC) curves are an alternative method to compare performance by
+computing true positive rates and false positive rates for each predictor.
+
+```{r plotROC}
+# make ROC curve plots for each cell type
+roc_plots <- applyCellTypes(merged, .fun = plotROC, pos_col = "Regulated",
+                            pred_config = pred_config, line_width = 0.8, point_size = 3,
+                            text_size = 13, colors = pred_colors)
+
+# save plots to files
+savePlotList(roc_plots, basename = "roc_full_expt_data.pdf", path = plotdir, height = 4.5,
+             width = 8)
+```
+
+```{r results='asis', fig.cap=cap, fig.height=4.5, fig.width=8}
+# print plots for every cell type in tabs
+printTabbedPlots(roc_plots, section_level = "##")
+
+# figure caption
+cap <- paste("ROC curves for all predictors in all matching experimental cell types.",
+             "Distance to TSS and nearest genes/TSS were added as baseline predictors and computed",
+             "from the provided 'gene universe'.")
+```
+
+***
+
 # Effect size vs predictors {.tabset .tabset-pills}
 Each predictor listed in the prediction data is plotted against the effect size of enhancer
 perturbations reported in the experimental data (e.g. percent change in expression). These plots

@@ -74,8 +74,7 @@ rule comparePredictionsToExperiment:
   input:
     merged = "results/{comparison}/expt_pred_merged_annot.txt.gz",
     pred_config = get_pred_config
-  output:
-    "results/{comparison}/{comparison}_crispr_comparison.html"
+  output: "results/{comparison}/{comparison}_crispr_comparison.html"
   params:
      pred_names = lambda wildcards: config["comparisons"][wildcards.comparison]["pred"].keys(),
      include_missing_predictions = True,
@@ -87,3 +86,14 @@ rule comparePredictionsToExperiment:
     mem_mb = 8000
   script:
     "../../workflow/scripts/comparePredictionsToExperiment.Rmd"
+    
+# create genome browser tracks
+rule createGenomeBrowserTracks:
+  input: 
+    merged = "results/{comparison}/expt_pred_merged_annot.txt.gz"
+  output: directory("results/{comparison}/genome_browser_tracks")
+  conda: "../envs/r_crispr_comparison.yml"
+  resources:
+    mem_mb = 8000  
+  script:
+    "../../workflow/scripts/createGenomeBrowserTracks.R"    
