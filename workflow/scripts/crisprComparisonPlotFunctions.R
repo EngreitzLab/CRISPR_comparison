@@ -7,6 +7,96 @@ library(ggcorrplot)
 
 ## WORK IN PROGRESS CODE ===========================================================================
 
+# calculate performance metrics using ROCR
+calculatePerformance <- function(merged, pos_col, pred_config, measure, x.measure = NULL) {
+  
+  # split into list for lapply
+  merged_split <- split(merged, f = merged$pred_uid)
+  
+  # get inverse predictors
+  inverse_predictors <- pred_config %>% 
+    select(pred_uid, inverse_predictor) %>% 
+    deframe()
+  
+  # multiply inverse predictors by -1 so that higher value corresponds to higher score
+  inverse_predictors <- inverse_predictors[names(merged_split)]  # same as predictors for cell type
+  merged_split <- mapply(FUN = function(pred, inv_pred) {
+    inv_multiplier <- ifelse(inv_pred, -1, 1)
+    pred$pred_value <- pred$pred_value * inv_multiplier
+    return(pred)
+  }, merged_split, inverse_predictors, SIMPLIFY = FALSE)
+  
+  # compute precision-recall performance for each predictor
+  perf <- lapply(merged_split, FUN = function(p){
+    performance(prediction(p$pred_value, p[[pos_col]]), measure = measure, x.measure = x.measure)
+  })
+  
+  return(perf)
+  
+}
+
+# convert a list of ROCR performance objects into a table
+# TODO: get rid of manual names and use internal names for ROCR performance metrics
+perfToTable <- function(perf_list, measure_name, x.measure_name) {
+  
+  # function to convert one performance object to a table
+  convert_perfToTable <- function(perf, measure_name, x.measure_name) {
+    df <- data.frame(list(
+      alpha = perf@alpha.values[[1]],
+      measure = perf@y.values[[1]],
+      x.measure = perf@x.values[[1]]
+    ))
+    return(df)
+  }
+  
+  # apply to input list
+  perf_list <- lapply(perf_list, convert_perfToTable)
+  
+  # convert list of tables into one table
+  perf_table <- rbindlist(perf_list, idcol = "pred_uid")
+  colnames(perf_table)[colnames(perf_table) == "measure"] <- measure_name
+  colnames(perf_table)[colnames(perf_table) == "x.measure"] <- x.measure_name
+  
+  return(perf_table)
+  
+}
+
+# make a eceiver operating characteristic (ROC) curve
+plotROC <- function(merged, pos_col, pred_config, colors, thresholds = NULL,
+                    plot_name = "ROC curve full experimental data", line_width = 1, 
+                    point_size = 3, text_size = 15) {
+  
+  # compute ROC curve
+  roc <- calculatePerformance(merged, pos_col = pos_col, pred_config = pred_config, measure = "tpr",
+                              x.measure = "fpr")
+  
+  # make ROC table
+  roc <- perfToTable(roc, measure_name = "TPR", x.measure_name = "FPR")
+  
+  # add pretty predictor names to pr_df for plotting
+  roc <- left_join(roc, select(pred_config, pred_uid, pred_name_long), by = "pred_uid")
+  
+  # separate pr data into quantitative and boolean predictors
+  bool_preds <- pull(filter(pred_config, boolean == TRUE), pred_uid)
+  roc_quant <- filter(roc, !pred_uid %in% bool_preds)
+  roc_bool  <- filter(roc, pred_uid %in% bool_preds)
+  
+  # get precision and recall for boolean predictor at alpha 1
+  roc_bool <- filter(roc_bool, alpha == 1)
+
+  # create PRC plot (caution, this assumes that there at least 1 quant and 1 bool predictor!)
+  ggplot(roc_quant, aes(x = FPR, y = TPR, color = pred_name_long)) +
+    geom_line(size = line_width) +
+    geom_point(data = roc_bool, size = point_size) +
+    labs(title = plot_name, x  = "False postitive rate", y = "True postitive rate",
+         color = "Predictor") + 
+    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) + 
+    scale_color_manual(values = colors, breaks = names(colors)) +
+    theme_bw() +
+    theme(text = element_text(size = text_size))
+  
+}
+
 # make performance (AUPRC) per subset plot
 plotPerfSubsets <- function(perf, pred_config, subset_name = NULL, title = NULL, order = NULL) {
   
@@ -800,7 +890,7 @@ predVsEffectSizeSubsets <- function(merged, subset_cols, pos_col, pred_names_col
 
 # get all cell types in merged data. if there are multiple cell types and if combined = TRUE add
 # "combined" to include a set of all cell types combined
-getCellTypes <- function(merged, cell_types_col = "ExperimentCellType", combined = TRUE) {
+getCellTypes <- function(merged, cell_types_col, combined) {
   
   # get all cell types in merged data (remove any NAs)
   cell_types <- unique(merged[[cell_types_col]])
@@ -817,25 +907,49 @@ getCellTypes <- function(merged, cell_types_col = "ExperimentCellType", combined
 }
 
 # get data for a specified cell type or all if cell_type == "combined"
-getCellTypeData <- function(df, cell_type, cell_types_col = "ExperimentCellType") {
+getCellTypeData <- function(df, cell_type, cell_types_col) {
   df[df[[cell_types_col]] %in% cell_type, ]
 }
 
 # helper function to apply a function to one cell type in merged data
-applyCellType <- function(cell_type, merged, .fun, ..., cell_types_col = "ExperimentCellType") {
+applyCellType <- function(cell_type, merged, .fun, ..., cell_types_col) {
+  
+  # get data for the given cell type
   merged_cell_type <- getCellTypeData(merged, cell_type = cell_type, cell_types_col = cell_types_col)
-  .fun(merged_cell_type, ...)
+  
+  # try to apply the specified function and capture any errors and warnings
+  output <- tryCatch(
+    withCallingHandlers({
+      .fun(merged_cell_type, ...)
+    }, warning = function(w) {
+      message("For cell type ", cell_type, ": ", w)
+      invokeRestart("muffleWarning")
+    }), error = function(e) {
+      message("For cell type ", cell_type, ": ", e)
+      return(NULL)
+    })
+  
+  return(output)
+  
 }
 
 # simple wrapper to apply a function to all cell types in merged data
 applyCellTypes <- function(merged, .fun, ..., cell_types_col = "ExperimentCellType",
-                           combined = TRUE) {
+                           combined = TRUE, remove_failed = TRUE) {
   
   # get all cell types in merged data
   cell_types <- getCellTypes(merged, cell_types_col = cell_types_col, combined = combined)
   
   # apply function to all cell types
-  lapply(cell_types, FUN = applyCellType, merged = merged, .fun = .fun, ...)
+  output <- lapply(cell_types, FUN = applyCellType, merged = merged, .fun = .fun, ...,
+                   cell_types_col = cell_types_col)
+  
+  # remove output for any cell types where function failed
+   if (remove_failed == TRUE) {
+     output <- output[!vapply(output, FUN = is.null, FUN.VALUE = logical(1))]
+   }
+  
+  return(output)
   
 }
 
@@ -874,11 +988,17 @@ makeScatterPlots <- function(df, x_col, y_col, color_col = NULL, x_lab = NULL, y
   
 }
 
-# save a list of plots to output files (... can be any argument for ggsave)
-savePlotList <- function(plot_list, basename, ...) {
+# save a list of plots to output files (... can be any other argument for ggsave)
+savePlotList <- function(plot_list, basename, path = ".", ...) {
   
   # output filenames for plots
-  outfiles <- paste(names(plot_list), basename, sep = ".")
+  outfiles <- paste(rep(path, times = length(plot_list)), names(plot_list),
+                    rep(basename, times = length(plot_list)), sep = "/")
+  
+  # create required directories if needed
+  for (i in dirname(outfiles)) {
+    dir.create(i, recursive = TRUE, showWarnings = FALSE)
+  }
   
   # save list of plots to output files
   invisible(mapply(FUN = ggsave, outfiles, plot_list, MoreArgs = list(...)))
@@ -940,16 +1060,6 @@ pr2df <- function(pr, calc_f1 = TRUE) {
   return(pr_df)
   
 }
-
-
-
-
-
-
-
-
-
-
 
 # try to compute AUC
 computeAUC <- function(x_vals, y_vals) {

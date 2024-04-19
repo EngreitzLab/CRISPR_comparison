@@ -5,8 +5,8 @@ comparisons:
     pred:
       ABC: "resources/example/ABC_K562_Fulco2019Genes_GRCh38.tsv.gz"
     expt: "resources/example/EPCrisprBenchmark_Fulco2019_K562_GRCh38.tsv.gz"
-    gene_universe: "resources/genome_annotations/RefSeqCurated.170308.bed.CollapsedGeneBounds.hg38.bed"
-    tss_universe:  "resources/genome_annotations/RefSeqCurated.170308.bed.CollapsedGeneBounds.hg38.TSS500bp.bed"
+    gene_universe: "resources/genome_annotations/CollapsedGeneBounds.hg38.bed"
+    tss_universe: "resources/genome_annotations/CollapsedGeneBounds.hg38.TSS500bp.bed"
     pred_config: "resources/example/pred_config.txt"
     cell_type_mapping: 
       ABC: "resources/example/ABC_cell_type_mapping.txt"
