@@ -457,7 +457,8 @@ makePRSummaryTableBS <- function(merged, pred_config, pos_col, min_sensitivity =
 # make a PR curve plot for a set of provided predictors
 makePRCurvePlot <- function(pr_df, pred_config, n_pos, pct_pos, min_sensitivity = 0.7,
                             plot_name = "PRC full experimental data", line_width = 1, 
-                            point_size = 3, text_size = 15, colors = NULL) {
+                            point_size = 3, text_size = 15, colors = NULL, plot_thresholds = TRUE,
+                            na_color = "gray66", na_size_factor = 0.5) {
   
   # create performance summary
   perf_summary <- makePRSummaryTable(pr_df, pred_config = pred_config,
@@ -493,15 +494,22 @@ makePRCurvePlot <- function(pr_df, pred_config, n_pos, pct_pos, min_sensitivity 
   pr_threshold_na_col <- filter(pr_threshold, pred_name_long %in% na_col)
   
   # set NA colors to a lighter gray than the ggplot default
-  colors[is.na(colors)] <- "gray66"
+  colors[is.na(colors)] <- na_color
   
   # create PRC plot (caution, this assumes that there at least 1 quant and 1 bool predictor!)
-  ggplot(pr_quant, aes(x = recall, y = precision, color = pred_name_long)) +
-    geom_line(data = pr_quant_na_col, size = line_width) +
-    geom_point(data = pr_threshold_na_col, size = point_size) +
-    geom_point(data = pr_bool_na_col, size = point_size) +
-    geom_line(data = pr_quant_col, size = line_width) +
-    geom_point(data = pr_threshold_col, size = point_size) +
+  p <- ggplot(pr_quant, aes(x = recall, y = precision, color = pred_name_long)) +
+    geom_line(data = pr_quant_na_col, linewidth = line_width * na_size_factor)
+  
+  if (plot_thresholds) p <- p + geom_point(data = pr_threshold_na_col,
+                                           size = point_size * na_size_factor)
+  
+  p <- p + 
+    geom_point(data = pr_bool_na_col, size = point_size * na_size_factor) +
+    geom_line(data = pr_quant_col, linewidth = line_width)
+  
+  if (plot_thresholds) p <- p + geom_point(data = pr_threshold_col, size = point_size)
+  
+  p + 
     geom_point(data = pr_bool_col, size = point_size) +
     geom_hline(yintercept = pct_pos, linetype = "dashed", color = "black") +
     labs(title = plot_name, x  = paste0("Recall (n=", n_pos, ")"), y = "Precision",
