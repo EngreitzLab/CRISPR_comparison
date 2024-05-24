@@ -1,5 +1,16 @@
 # rules to perform comparisons of CRE predictions to CRISPR data
 
+# get all prediction files and concatenate them into one array
+def get_predictions(wildcards):
+  preds = config["comparisons"][wildcards.comparison]["pred"]
+  preds_array = []
+  for value in preds.values():
+    if isinstance(value, list):
+      preds_array.extend(value)
+    else:
+      preds_array.append(value)
+  return preds_array
+
 # get pred_config file if specified in config, else create name for default pred_config file
 def get_pred_config(wildcards):
   pred_config = config["comparisons"][wildcards.comparison]["pred_config"]
@@ -8,22 +19,22 @@ def get_pred_config(wildcards):
     pred_config = "results/" + comparison + "/pred_config.txt"
   return pred_config
 
-# get optional input files if they are specified in config
-def get_optional_file(wildcards, file):
+# get optional input parameter if they are specified in config
+def get_optional_parameter(wildcards, param):
   try:
-    file = config["comparisons"][wildcards.comparison][file]
+    param = config["comparisons"][wildcards.comparison][param]
   except KeyError:
-    file = None
-  if file is None:
-    file = []
+    param = None
+  if param is None:
+    param = []
   else:
-    if type(file) is dict:
-      file = file.values()
-  return file
+    if type(param) is dict:
+      param = param.values()
+  return param
 
 ## RULES -------------------------------------------------------------------------------------------
 
-# create pred_config file with default values
+# create minimal pred_config file with default values
 rule createPredConfig:
   output:
     "results/{comparison}/pred_config.txt"
@@ -36,17 +47,18 @@ rule createPredConfig:
 # merge predictions with experimental data
 rule mergePredictionsWithExperiment:
   input:
-    predictions = lambda wildcards: config["comparisons"][wildcards.comparison]["pred"].values(),
+    predictions = get_predictions,
     experiment  = lambda wildcards: config["comparisons"][wildcards.comparison]["expt"],
     tss_universe = lambda wildcards: config["comparisons"][wildcards.comparison]["tss_universe"],
     gene_universe = lambda wildcards: config["comparisons"][wildcards.comparison]["gene_universe"],
     pred_config = get_pred_config,
-    cell_type_mapping = lambda wildcards: get_optional_file(wildcards, "cell_type_mapping"),
-    expressed_genes = lambda wildcards: get_optional_file(wildcards, "expressed_genes")
+    cell_type_mapping = lambda wildcards: get_optional_parameter(wildcards, "cell_type_mapping"),
+    expressed_genes = lambda wildcards: get_optional_parameter(wildcards, "expressed_genes")
   output:
     merged = temp("results/{comparison}/expt_pred_merged.txt.gz")
   params:
-    pos_col = "Regulated"
+    pos_col = "Regulated",
+    include_col = lambda wildcards: get_optional_parameter(wildcards, "include_col")
   log: "results/{comparison}/logs/mergePredictionsWithExperiment.log"
   conda: "../envs/r_crispr_comparison.yml"
   resources:
@@ -58,9 +70,9 @@ rule mergePredictionsWithExperiment:
 rule annotateEnhFeatures:
   input:
     merged = "results/{comparison}/expt_pred_merged.txt.gz",
-    gene_features = lambda wildcards: get_optional_file(wildcards, "gene_features"),
-    enh_features = lambda wildcards: get_optional_file(wildcards, "enh_features"),
-    enh_assays = lambda wildcards: get_optional_file(wildcards, "enh_assays")
+    gene_features = lambda wildcards: get_optional_parameter(wildcards, "gene_features"),
+    enh_features = lambda wildcards: get_optional_parameter(wildcards, "enh_features"),
+    enh_assays = lambda wildcards: get_optional_parameter(wildcards, "enh_assays")
   output:
     "results/{comparison}/expt_pred_merged_annot.txt.gz"
   conda: "../envs/r_crispr_comparison.yml"
@@ -80,10 +92,11 @@ rule comparePredictionsToExperiment:
      include_missing_predictions = True,
      pos_col = "Regulated",
      min_sensitivity = 0.7,
-     dist_bins_kb = lambda wildcards: config["comparisons"][wildcards.comparison]["dist_bins_kb"]
+     dist_bins_kb = lambda wildcards: config["comparisons"][wildcards.comparison]["dist_bins_kb"],
+     include_col = lambda wildcards: get_optional_parameter(wildcards, "include_col")
   conda: "../envs/r_crispr_comparison.yml"
   resources:
-    mem_mb = 8000
+    mem_mb = 12000
   script:
     "../../workflow/scripts/comparePredictionsToExperiment.Rmd"
     

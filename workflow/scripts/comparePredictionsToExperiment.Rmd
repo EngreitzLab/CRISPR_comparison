@@ -23,28 +23,27 @@ library(DT)
 library(ROCR)
 library(caTools)
 library(UpSetR)
+source(file.path(snakemake@scriptdir, "crisprComparisonLoadInputData.R"))
 source(file.path(snakemake@scriptdir, "crisprComparisonPlotFunctions.R"))
 source(file.path(snakemake@scriptdir, "crisprComparisonBootstrapFunctions.R"))
 ```
 
 ```{r prepareInputData}
-# load merged data and pred_config file
+# load merged data
 merged <- fread(snakemake@input$merged, colClasses = c("ValidConnection" = "character"))
-pred_config <- fread(snakemake@input$pred_config,
-                     colClasses = c("alpha" = "numeric", "color" = "character"))
 
-# process pred_config file for benchmarking analyses
-pred_config <- processPredConfig(pred_config, merged = merged)
+# import pred_config file
+include_col <- ifelse(is.null(snakemake@params$include_col), "include", snakemake@params$include_col)
+pred_config <- importPredConfig(snakemake@input$pred_config,
+                                expr = "baseline.nearestExprTSS" %in% merged$pred_uid,
+                                include_col = include_col)
 
 # process merged data for benchmarking analyses, including filtering for ValidConnection == TRUE
 merged <- processMergedData(merged, pred_config = pred_config, filter_valid_connections = TRUE,
                             include_missing_predictions = snakemake@params$include_missing_predictions,
                             distToTSS_as_kb = TRUE)
 
-# get minimum alpha value for predictors that do not have alpha specified (default = min alpha)
-#pred_config <- getDefaultAlpha(pred_config, merged = merged)
-
-# set colors for predictors in plots
+# extract colors for predictors in all plots
 if (all(is.na(pred_config$color))) {
   pred_colors <- NULL
 } else {
@@ -78,7 +77,8 @@ provided, this was generated using default values. It's strongly recommended to 
 config file to control how predictors should be treated.
 ```{r printPredConfig}
 options(htmlwidgets.TOJSON_ARGS = list(na = 'string'))
-datatable(pred_config[, -1], options = list(pageLength = 20), autoHideNavigation = TRUE)
+pred_config_print <- pred_config[, -c("include", "pred_uid")]
+datatable(pred_config_print, options = list(pageLength = 20), autoHideNavigation = TRUE)
 ```
 
 ***

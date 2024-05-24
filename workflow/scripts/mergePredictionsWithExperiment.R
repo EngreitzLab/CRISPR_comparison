@@ -10,20 +10,23 @@ sink(log)
 sink(log, type = "message")
 
 # attach required packages and functions
-merge_functions_file <- file.path(snakemake@scriptdir, "crisprComparisonMergeFunctions.R")
-simple_predictors_file <- file.path(snakemake@scriptdir, "crisprComparisonSimplePredictors.R")
-suppressPackageStartupMessages(source(merge_functions_file))
-suppressPackageStartupMessages(source(simple_predictors_file))
+suppressPackageStartupMessages({
+  source(file.path(snakemake@scriptdir, "crisprComparisonLoadInputData.R"))
+  source(file.path(snakemake@scriptdir, "crisprComparisonMergeFunctions.R"))
+  source(file.path(snakemake@scriptdir, "crisprComparisonSimplePredictors.R"))
+})
 
 
 ## load data ---------------------------------------------------------------------------------------
 
-# load pred_config file
-pred_config <- fread(snakemake@input$pred_config,
-                     colClasses = c("alpha" = "numeric", "color" = "character"))
-
 # config entry for this comparison is used to load named list of input files
 config <- snakemake@config$comparisons[[snakemake@wildcards$comparison]]
+
+# load pred_config file
+include_col <- ifelse(is.null(snakemake@params$include_col), "include", snakemake@params$include_col)
+pred_config <- importPredConfig(snakemake@input$pred_config,
+                                expr = !is.null(snakemake@input$expressed_genes),
+                                include_col = include_col, filter = FALSE)
 
 # load experimental data
 message("Reading experimental data in: ", snakemake@input$experiment)
@@ -31,9 +34,8 @@ expt <- fread(file = snakemake@input$experiment, showProgress = FALSE,
               colClasses = c("ValidConnection" = "character"))
 message("\tLoaded experimental data with ", nrow(expt), " rows.\n")
 
-# load prediction files
-pred_files <- config$pred
-pred_list <- lapply(pred_files, FUN = loadPredictions, show_progress = FALSE)
+# load all prediction files
+pred_list <- loadPredictions(config$pred, show_progress = FALSE)
 
 # load tss and gene universe files
 tss_annot <- fread(snakemake@input$tss_universe, select = 1:6,
@@ -52,7 +54,7 @@ if (!is.null(ct_map_files)) {
 
 # load expressed genes files if provided
 if (!is.null(snakemake@input$expressed_genes)) {
-  expressed_genes <- fread(snakemake@input$expressed_genes)
+  expressed_genes <- loadGeneExpr(snakemake@input$expressed_genes)
 } else {
   expressed_genes <- NULL
 }
@@ -108,7 +110,7 @@ merged <- combineAllExptPred(expt = expt,
 ## compute baseline predictors ---------------------------------------------------------------------
 
 # get simple baseline predictors to compute
-baseline_pred_ids <- c("distToTSS", "nearestTSS", "nearestGene", "within100kbTSS")
+baseline_pred_ids <- c("distToTSS", "distToGene", "nearestTSS", "nearestGene", "within100kbTSS")
 if (!is.null(expressed_genes)) {
   baseline_pred_ids <- c(baseline_pred_ids,
                          c("nearestExprTSS", "nearestExprGene", "within100kbExprTSS"))
@@ -120,10 +122,7 @@ baseline_preds <- computeBaselinePreds(expt, preds = baseline_pred_ids, tss_anno
                                        gene_annot = gene_annot, expressed_genes = expressed_genes)
 merged <- rbind(merged, baseline_preds)
 
-## format output and write to file -----------------------------------------------------------------
-
-# rename 'CellType' column from experimental data
-colnames(merged)[colnames(merged) == "CellType"] <- "ExperimentCellType"
+## write to file -----------------------------------------------------------------------------------
 
 # write merged data to main output file
 readr::write_tsv(merged, file = snakemake@output$merged)
