@@ -58,11 +58,12 @@ rule mergePredictionsWithExperiment:
     merged = temp("results/{comparison}/expt_pred_merged.txt.gz")
   params:
     pos_col = "Regulated",
-    include_col = lambda wildcards: get_optional_parameter(wildcards, "include_col")
+    include_col = lambda wildcards: get_optional_parameter(wildcards, "include_col"),
+    filter_include_col = False
   log: "results/{comparison}/logs/mergePredictionsWithExperiment.log"
   conda: "../envs/r_crispr_comparison.yml"
   resources:
-    mem_mb = 48000
+    mem_mb = 32000
   script:
    "../../workflow/scripts/mergePredictionsWithExperiment.R"
    
@@ -96,7 +97,8 @@ rule comparePredictionsToExperiment:
      include_col = lambda wildcards: get_optional_parameter(wildcards, "include_col")
   conda: "../envs/r_crispr_comparison.yml"
   resources:
-    mem_mb = 12000
+    mem_mb = 32000,
+    runtime = "2h"
   script:
     "../../workflow/scripts/comparePredictionsToExperiment.Rmd"
     

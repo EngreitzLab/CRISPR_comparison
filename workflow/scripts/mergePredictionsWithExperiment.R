@@ -26,7 +26,8 @@ config <- snakemake@config$comparisons[[snakemake@wildcards$comparison]]
 include_col <- ifelse(is.null(snakemake@params$include_col), "include", snakemake@params$include_col)
 pred_config <- importPredConfig(snakemake@input$pred_config,
                                 expr = !is.null(snakemake@input$expressed_genes),
-                                include_col = include_col, filter = FALSE)
+                                include_col = include_col,
+                                filter = snakemake@params$filter_include_col)
 
 # load experimental data
 message("Reading experimental data in: ", snakemake@input$experiment)
@@ -109,12 +110,15 @@ merged <- combineAllExptPred(expt = expt,
 
 ## compute baseline predictors ---------------------------------------------------------------------
 
-# get simple baseline predictors to compute
+# get all simple baseline predictors to compute
 baseline_pred_ids <- c("distToTSS", "distToGene", "nearestTSS", "nearestGene", "within100kbTSS")
 if (!is.null(expressed_genes)) {
   baseline_pred_ids <- c(baseline_pred_ids,
                          c("nearestExprTSS", "nearestExprGene", "within100kbExprTSS"))
 }
+
+# only retain baseline predictors to include in benchmark
+baseline_pred_ids <- intersect(baseline_pred_ids, pred_config$pred_col)
 
 # compute and add baseline predictors
 message("Computing baseline predictors:\n\t", paste(baseline_pred_ids, collapse = "\n\t"))
