@@ -26,12 +26,35 @@ computeBaselinePreds <- function(expt, tss_annot = NULL, gene_annot = NULL, expr
     stop("gene_annot required to compute: ", paste(gene_preds, collapse = ", "), call. = FALSE)
   }
   if (length(expr_preds) > 0 & is.null(expressed_genes)) {
-    stop("expr_genes required to compute: ", paste(expr_preds, collapse = ", "), call. = FALSE)
+    stop("expressed_genes required to compute: ", paste(expr_preds, collapse = ", "), call. = FALSE)
   }
+
+  # compute baseline predictors for each cell type in experimental data
+  cell_types <- unique(expt$CellType)
+  baseline_preds <- lapply(cell_types, FUN = compute_baseline_predictors_cell_type, preds = preds, 
+                           expt = expt, tss_annot = tss_annot, gene_annot = gene_annot,
+                           expr_genes = expressed_genes)
   
-  # extract expressed gene names if expressed_genes is provided
-  if (!is.null(expressed_genes)) {
-    expr_genes <- expressed_genes[expressed_genes$expressed == TRUE, ][["gene"]]
+  # combine into one table and reformat for output
+  baseline_preds <- rbindlist(baseline_preds)
+  colnames(baseline_preds)[colnames(baseline_preds) == "CellType"] <- "ExperimentCellType"
+  
+  return(baseline_preds)
+  
+}
+
+## HELPER FUNCTIONS ================================================================================
+
+# compute all baseline predictors for one cell type (required for 'expressed genes' predictors)
+compute_baseline_predictors_cell_type <- function(x, preds, expt, tss_annot, gene_annot,
+                                                  expr_genes) {
+  
+  # extract experimental data for given cell type
+  expt <- expt[CellType == x, ]
+  
+  # extract expressed gene names if expr_genes is provided
+  if (!is.null(expr_genes)) {
+    expr_genes <- expr_genes[cell_type == x & expressed == TRUE, ][["gene"]]
   }
   
   # compute baseline predictors
@@ -39,13 +62,11 @@ computeBaselinePreds <- function(expt, tss_annot = NULL, gene_annot = NULL, expr
                            tss_annot = tss_annot, gene_annot = gene_annot, expr_genes = expr_genes)
   
   # combine into one table
-  output <- rbindlist(baseline_preds)
+  baseline_preds <- rbindlist(baseline_preds)
   
-  return(output)
+  return(baseline_preds)
   
 }
-
-## HELPER FUNCTIONS ================================================================================
 
 # function to compute one baseline predictor
 compute_baseline_predictor <- function(pred, expt, tss_annot, gene_annot, expr_genes) {
@@ -104,6 +125,7 @@ computeDistToGene <- function(expt, annot, name, fix_annot = c("none", "center",
   output <- data.table(
     expt,
     PredictionCellType = NA_character_,
+    pred_uid = paste("baseline", name, sep = "."), 
     pred_id = "baseline",
     pred_col = name,
     pred_value = distance_pred,
@@ -133,6 +155,7 @@ nearestFeaturePred <- function(expt, features, name) {
   output <- data.table(
     expt[, ..expt_cols],
     PredictionCellType = NA_character_,
+    pred_uid = paste("baseline", name, sep = "."), 
     pred_id = "baseline",
     pred_col = name,
     pred_value = as.numeric(expt$nearest_feature == expt$measuredGeneSymbol),
@@ -202,36 +225,11 @@ withinDistFeature <- function(expt, features, dist, name) {
   output <- data.table(
     expt[, ..expt_cols],
     PredictionCellType = NA_character_,
+    pred_uid = paste("baseline", name, sep = "."),    
     pred_id = "baseline",
     pred_col = name,
     pred_value = expt$pred_value,
     Prediction = 1
   )
-  
-}
-
-
-## DEPRECATED ======================================================================================
-
-# compute baseline 'distance to TSS' predictor
-computeDistToTSS <- function(expt) {
-  
-  # compute distance to TSS
-  dist_to_tss <- with(
-    expt,
-    abs((chromStart + chromEnd) / 2 - (startTSS + endTSS) / 2)
-  )
-  
-  # create output table
-  output <- data.table(
-    expt,
-    PredictionCellType = NA_character_,
-    pred_id = "baseline",
-    pred_col = "distToTSS",
-    pred_value = dist_to_tss,
-    Prediction = 1
-  )
-  
-  return(output)
   
 }

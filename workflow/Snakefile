@@ -1,5 +1,5 @@
 
-# config file
+# config file specifying benchmarks to perform
 configfile: "config/config.yml"
 
 # rules for CRISPR comparisons
@@ -9,4 +9,6 @@ include: "rules/crispr_comparison.smk"
 rule all:
   input:
     expand("results/{comparison}/{comparison}_crispr_comparison.html",
+      comparison = config["comparisons"]),
+    expand("results/{comparison}/genome_browser_tracks",
       comparison = config["comparisons"])

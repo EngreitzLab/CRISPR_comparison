@@ -213,11 +213,8 @@ count_pairs_subset <- function(merged, subset_col, pos_col, all = TRUE) {
 processMergedData <- function(merged, pred_config, filter_valid_connections = TRUE,
                               include_missing_predictions = TRUE, distToTSS_as_kb = TRUE) {
   
-  # add unique identifiers to merged data
-  merged$pred_uid <- paste(merged$pred_id, merged$pred_col, sep = ".")
-  
   # only retain predictors that are specified to be included in plots
-  plot_preds <- pred_config[pred_config$plot_crispr == TRUE, ][["pred_uid"]]
+  plot_preds <- pred_config[pred_config$include == TRUE, ][["pred_uid"]]
   merged <- merged[merged$pred_uid %in% plot_preds, ]
   
   # add long names and whether a predictor is boolean from pred_config to merged data
@@ -245,91 +242,6 @@ processMergedData <- function(merged, pred_config, filter_valid_connections = TR
   }
   
   return(merged)
-  
-}
-
-# process pred_config file for benchmarking analyses
-processPredConfig <- function(pred_config, merged) {
-  
-  # pred_config column names relevant for crispr benchmarking
-  config_cols <- c("pred_id", "pred_col", "boolean", "alpha", "aggregate_function", "fill_value",
-                   "inverse_predictor", "pred_name_long", "color", "plot_crispr")
-  
-  # initialize optional plot_crispr column with 'TRUE', if not present in config table
-  if (!"plot_crispr" %in% colnames(pred_config)) {
-    pred_config$plot_crispr <- TRUE
-  }
-  
-  # only retain columns relevant for CRISPR benchmarking
-  pred_config <- pred_config[, ..config_cols]
-  
-  # add unique predictor identifier to pred_config
-  pred_config$pred_uid <- paste(pred_config$pred_id, pred_config$pred_col, sep = ".")
-  
-  # filter pred_config for predictors also occurring in merged data
-  merged_pred_uid <- unique(paste(merged$pred_id, merged$pred_col, sep = "."))
-  pred_config <- filter(pred_config, pred_uid %in% merged_pred_uid)
-  
-  # create default baseline predictor configuration
-  baseline_preds <- c("distToTSS", "nearestTSS", "nearestGene", "within100kbTSS", "nearestExprTSS",
-                      "nearestExprGene", "within100kbExprTSS")
-  baseline_preds_uid <- paste("baseline", baseline_preds, sep = ".")
-  baseline_pred_config <- data.table(
-    pred_uid = baseline_preds_uid,
-    pred_id = "baseline",
-    pred_col = baseline_preds,
-    boolean = c(FALSE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE),
-    alpha = c(NA, 1, 1, 1, 1, 1, 1),
-    aggregate_function = c("mean", "max", "max", "max", "max", "max", "max"),
-    fill_value = c(Inf, 0, 0, 0, 0, 0, 0),
-    inverse_predictor = c(TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE),
-    pred_name_long = c("Distance to TSS", "Nearest TSS", "Nearest Gene", "Within 100kb of TSS",
-                       "Nearest expr. TSS", "Nearest expr. Gene", "Within 100kb of expr. TSS"),
-    color = c("#ffa600", "#595959", "#bebebe", "#000000", "#595959", "#bebebe", "#000000"),
-    plot_crispr = TRUE
-  )
-  
-  # only retain default values for baseline predictors also found in merged data
-  baseline_pred_config <- filter(baseline_pred_config, pred_uid %in% merged_pred_uid)
-  
-  # if no colors were set for any of the other predictors, set colors of baseline predictors to NA
-  if (all(is.na(pred_config$color))) {
-    baseline_pred_config$color <- NA_character_
-  }
-  
-  # config for baseline predictors can be set in pred_config, so only add the default values for
-  # those missing from pred_config
-  baseline_preds_to_add <- setdiff(baseline_pred_config$pred_uid, pred_config$pred_uid)
-  
-  # if both nearest TSS/gene and nearest expr. TSS/gene baseline predictors where created, only
-  # include nearest expressed versions in plots by default. this can be overridden by specifying
-  # predictors to plot using the plot_crispr column
-  if (all(c("baseline.nearestTSS", "baseline.nearestExprTSS") %in% baseline_preds_to_add)) {
-    baseline_preds_to_add <- setdiff(baseline_preds_to_add, "baseline.nearestTSS")
-  }
-  
-  if (all(c("baseline.nearestGene", "baseline.nearestExprGene") %in% baseline_preds_to_add)) {
-    baseline_preds_to_add <- setdiff(baseline_preds_to_add, "baseline.nearestGene")
-  }
-  
-  if (all(c("baseline.within100kbTSS", "baseline.within100kbExprTSS") %in% baseline_preds_to_add)) {
-    baseline_preds_to_add <- setdiff(baseline_preds_to_add, "baseline.within100kbTSS")
-  }
-  
-  # add baseline predictors to pred_config
-  pred_config <- baseline_pred_config %>% 
-    filter(pred_uid %in% baseline_preds_to_add) %>% 
-    rbind(pred_config, .)
-  
-  # only retain predictors that are specified to be included in plots
-  pred_config <- pred_config[pred_config$plot_crispr == TRUE, ]
-  
-  # check that long predictor names are unique
-  if (any(table(pred_config$pred_name_long) > 1)) {
-    stop("'pred_name_long' in pred_config is not a unique identifier.", call. = FALSE)
-  }
-  
-  return(pred_config)
   
 }
 
@@ -457,7 +369,8 @@ makePRSummaryTableBS <- function(merged, pred_config, pos_col, min_sensitivity =
 # make a PR curve plot for a set of provided predictors
 makePRCurvePlot <- function(pr_df, pred_config, n_pos, pct_pos, min_sensitivity = 0.7,
                             plot_name = "PRC full experimental data", line_width = 1, 
-                            point_size = 3, text_size = 15, colors = NULL) {
+                            point_size = 3, text_size = 15, colors = NULL, plot_thresholds = TRUE,
+                            na_color = "gray66", na_size_factor = 0.5) {
   
   # create performance summary
   perf_summary <- makePRSummaryTable(pr_df, pred_config = pred_config,
@@ -493,15 +406,22 @@ makePRCurvePlot <- function(pr_df, pred_config, n_pos, pct_pos, min_sensitivity 
   pr_threshold_na_col <- filter(pr_threshold, pred_name_long %in% na_col)
   
   # set NA colors to a lighter gray than the ggplot default
-  colors[is.na(colors)] <- "gray66"
+  colors[is.na(colors)] <- na_color
   
   # create PRC plot (caution, this assumes that there at least 1 quant and 1 bool predictor!)
-  ggplot(pr_quant, aes(x = recall, y = precision, color = pred_name_long)) +
-    geom_line(data = pr_quant_na_col, size = line_width) +
-    geom_point(data = pr_threshold_na_col, size = point_size) +
-    geom_point(data = pr_bool_na_col, size = point_size) +
-    geom_line(data = pr_quant_col, size = line_width) +
-    geom_point(data = pr_threshold_col, size = point_size) +
+  p <- ggplot(pr_quant, aes(x = recall, y = precision, color = pred_name_long)) +
+    geom_line(data = pr_quant_na_col, linewidth = line_width * na_size_factor)
+  
+  if (plot_thresholds) p <- p + geom_point(data = pr_threshold_na_col,
+                                           size = point_size * na_size_factor)
+  
+  p <- p + 
+    geom_point(data = pr_bool_na_col, size = point_size * na_size_factor) +
+    geom_line(data = pr_quant_col, linewidth = line_width)
+  
+  if (plot_thresholds) p <- p + geom_point(data = pr_threshold_col, size = point_size)
+  
+  p + 
     geom_point(data = pr_bool_col, size = point_size) +
     geom_hline(yintercept = pct_pos, linetype = "dashed", color = "black") +
     labs(title = plot_name, x  = paste0("Recall (n=", n_pos, ")"), y = "Precision",

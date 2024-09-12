@@ -1,16 +1,9 @@
 
-# requried packages for functions in this file
+# required packages for functions in this file
 library(data.table)
 library(GenomicRanges)
 library(dplyr)
 
-# load a file containing a prediction set and report number of E-G pairs
-loadPredictions <- function(pred_file, show_progress = FALSE) {
-  message("Reading predictions in: ", pred_file)
-  pred <- fread(pred_file, showProgress = show_progress)
-  message("\tLoaded predictions with ", nrow(pred), " rows.\n")
-  return(pred)
-}
 
 # check format of an experiment dataset and report any issues
 qcExperiment <- function(expt, pos_col, remove_na_pos = FALSE) {
@@ -156,7 +149,8 @@ addGeneExpression <- function(expt, expressed_genes) {
   output_cols <- c(colnames(expt), "expressed")
   
   # add expression data to experimental data
-  expt <- merge(expt, expressed_genes, by.x = "measuredGeneSymbol", by.y = "gene", all.x = TRUE)
+  expt <- merge(expt, expressed_genes, by.x = c("CellType", "measuredGeneSymbol"),
+                by.y = c("cell_type", "gene"), all.x = TRUE)
   expt <- expt[, ..output_cols]
   
   # set any experimental genes not in the expressed_genes table to expressed = FALSE
@@ -193,11 +187,14 @@ mapCellTypes <- function(pred_list, cell_mappings) {
 # function to map cell types for one prediction set
 map_cell_type <- function(pred, ct_map) {
   
+  # save column order for correct output columns later
+  pred_cols <- colnames(pred)  
+  
   # map cell types if cell type mapping is provided
   if (nrow(ct_map) == 0) {
     
     # simply assume that experimental cell types are identical to prediction cell types
-    pred_ct <- cbind(pred, ExperimentCellType = pred$CellType)
+    pred <- cbind(pred, ExperimentCellType = pred$CellType)
     
   } else {
     
@@ -205,21 +202,21 @@ map_cell_type <- function(pred, ct_map) {
     colnames(ct_map)[colnames(ct_map) == "experiment"] <- "ExperimentCellType"
     
     # merge pred and cell type mapping
-    pred_ct <- merge(x = pred, y = ct_map, by.x = "CellType", by.y = "predictions", all.x = TRUE,
+    pred <- merge(x = pred, y = ct_map, by.x = "CellType", by.y = "predictions", all.x = TRUE,
                      all.y = FALSE)
     
-    # assign new CellType if an experimental cell type was specified
-    to_map <- !is.na(pred_ct[["ExperimentCellType"]])
-    map_values <- pred_ct[to_map, ][["ExperimentCellType"]]
-    pred_ct[to_map, "CellType"] <- map_values
+    # if no experimental cell type was assigned, use cell type from predictions
+    pred$ExperimentCellType <- fifelse(is.na(pred$ExperimentCellType),
+                                            yes = pred$CellType,
+                                            no = pred$ExperimentCellType)
     
   }
   
   # rename original CellType column in output
-  pred_ct <- pred_ct[, c(colnames(pred), "ExperimentCellType"), with = FALSE]
-  colnames(pred_ct)[colnames(pred_ct) == "CellType"] <- "PredictionCellType"
+  pred <- pred[, c(pred_cols, "ExperimentCellType"), with = FALSE]
+  colnames(pred)[colnames(pred) == "CellType"] <- "PredictionCellType"
   
-  return(pred_ct)
+  return(pred)
   
 }
 
@@ -255,9 +252,12 @@ combineAllExptPred <- function(expt, pred_list, config, outdir, fill_pred_na = T
   # combine merged data into one table
   output <- rbindlist(merged_list, idcol = "pred_id")
   
+  # add unique identifier for each predictor
+  output$pred_uid <- paste(output$pred_id, output$pred_col, sep = ".")
+  
   # rearrange columns for output
-  left_cols <- colnames(output)[seq(2, ncol(output) - 3)]
-  output_col_order <- c(left_cols, "pred_id", "pred_col", "pred_value", "Prediction")
+  left_cols <- colnames(output)[seq(2, ncol(output) - 4)]
+  output_col_order <- c(left_cols, "pred_uid", "pred_id", "pred_col", "pred_value", "Prediction")
   output <- output[, output_col_order, with = FALSE]
   
   return(output)
@@ -355,21 +355,12 @@ combineSingleExptPred <- function(expt, pred, pred_name, config, outdir, fill_pr
   
   # Step 4: create output --------------------------------------------------------------------------
   
-  ### WHY IS THIS NECESSARY??
-  #score_colname <- colnames(merged)[grep("Score", colnames(merged))]
-  #merged[[paste0(score_colname,'.Prediction')]] <- merged[[score_colname]] * merged$Prediction
-  
-  # get distance for predictions that overlap experiments
-  #dist_colname <- colnames(merged)[grep("distance", colnames(merged))]
-  #merged[[paste0(dist_colname,'.Prediction')]] <- merged[[dist_colname]] * merged$Prediction
-  
-  # rename new columns based on prediction dataset name
-  #pred_cols <- colnames(merged) %in% c(config_filt$pred_col, "Prediction")
-  #colnames(merged)[pred_cols] <- paste0(pred_name, ".", colnames(merged)[pred_cols])
-  
   # convert to long format to generate output
   output <- melt(merged, measure.vars =  config_filt$pred_col, variable.name = "pred_col",
                  value.name = "pred_value")
+  
+  # rename CellType column from experimental input to ExperimentCellType
+  colnames(output)[colnames(output) == "CellType"] <- "ExperimentCellType"
   
   # sort output according to genomic coordinates of enhancers and target gene
   sortcols <- c("chrom", "chromStart", "chromEnd", "measuredGeneSymbol")
@@ -549,88 +540,3 @@ fill_pred_na <- function(pred, pred_name, config) {
   return(pred)
   
 }
-
-## Deprecated import functions =====================================================================
-
-# fread_ignore_empty <- function(f, ...) {
-#   tryCatch({
-#     return(fread(f, fill = TRUE, ...))
-#   }, error = function(e){
-#     print(paste0("Could not open file: ", f))
-#     return()
-#   })
-# }
-# 
-# fread_gz_ignore_empty <- function(f, ...) {
-#   tryCatch({
-#     return(fread(paste0("gunzip -c ", f), ...))
-#   }, error = function(e){
-#     print(paste0("Could not open file: ", f))
-#     return()
-#   })
-# }
-# 
-# smart_fread <- function(f, ...) {
-#   if (summary(file(f))$class == "gzfile") {
-#     out <- fread_gz_ignore_empty(f, ...)
-#   } else {
-#     out <- fread_ignore_empty(f, ...)
-#   }
-# 
-#   #con <- file(f)
-#   #on.exit(close(con), add = TRUE)
-#   tryCatch({
-#     closeAllConnections()
-#   }, error = function(e) {
-#     print(e)
-#   }
-#   )
-# 
-#   return(out)
-# }
-# 
-# loadDelimited <- function(file.list) {
-#   data.list <- lapply(file.list, smart_fread)
-#   return(rbindlist(data.list, fill = TRUE))
-# }
-# 
-# loadFileString <- function(file.str, delim = ",") {
-#   file.list <- strsplit(file.str, split = delim)[[1]]
-#   return(loadDelimited(file.list))
-# }
-# 
-# loadPredictions <- function(pred.table) {
-#   pred.list <- lapply(pred.table$path, function(s) {
-#     message("Loading dataset: ", s)
-#     df <- loadFileString(s)
-#     message("\tDataset loaded with ", nrow(df), " rows")
-#     return(df)
-#     })
-#   names(pred.list) <- pred.table$name
-#   return(pred.list)
-# }
-# 
-# # Deprecated TODO: re-implement with new prediction format
-# qcPrediction <- function(pred_list, pred_config)  {
-#   # Ensure that the fill value for each prediction column is at the extreme end of its range
-#   message("Running QC on predictions")
-#   
-#   doOnePred <- function(pred, config) {
-#     this_cols <- intersect(colnames(pred), config$pred_col)
-#     lapply(this_cols, function(s) {
-#       qcCol(col_name = s, 
-#             colData = pred[, ..s],
-#             fill_val = subset(config, pred_col == s)$fill_val, 
-#             isInverted = subset(config, pred_col == s)$inverse_predictor)
-#     })
-#   }
-#   
-#   qcCol <- function(col_name, colData, fill_val, isInverted) {
-#     # For each prediction column check that its missing fill val is at the extreme end of its range
-#     isBad <- (isInverted & fill_val < pmin(colData)) | (!isInverted & fill_val > pmin(colData))
-#     suppressWarnings(if (isBad) stop(paste0("Fill val for column ", col_name, " is not at the extreme of its range!", fill_val, " ", pmin(colData))))
-#   }
-#   
-#   dummy <- lapply(pred_list, function(s) doOnePred(s, config = pred_config))
-#   message("Done")
-# }
