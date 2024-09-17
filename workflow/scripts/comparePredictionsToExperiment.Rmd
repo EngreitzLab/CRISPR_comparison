@@ -155,12 +155,12 @@ pr_plots <- mapply(FUN = makePRCurvePlot, pr_df = pr, n_pos = n_pos, pct_pos = p
 
 # save plots to files
 savePlotList(pr_plots, basename = "prc_full_expt_data.pdf", path = plotdir, height = 4.5,
-             width = 8)
+             width = 7)
 ```
 
 ## Precision-recall curves {.tabset .tabset-pills}
 
-```{r results='asis', fig.cap=cap, fig.height=4.5, fig.width=8}
+```{r results='asis', fig.cap=cap, fig.height=4.5, fig.width=7}
 # print plots for every cell type in tabs
 printTabbedPlots(pr_plots, section_level = "##")
 

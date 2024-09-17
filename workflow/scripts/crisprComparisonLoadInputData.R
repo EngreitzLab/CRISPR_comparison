@@ -74,14 +74,16 @@ importPredConfig <- function(pred_config_file, expr = FALSE, include_col = "incl
 #' Load input prediction files and create a list of tables, containing data for all predictors.
 #' 
 #' @param pred_files Named list containing all input prediction files.
+#' @param load_function Function used to load prediction files (default = 'fread'). Used to provide
+#'   functions to load custom file formats.
 #' @param show_progress (logical) Should detailed loading progress be showed?
-loadPredictions <- function(pred_files, show_progress = FALSE) {
+loadPredictions <- function(pred_files, load_function = fread, show_progress = FALSE) {
   
   message("Loading prediction files:")
   
   pred_ids <- structure(names(pred_files), names = names(pred_files))
   preds <- lapply(pred_ids, FUN = load_pred_files_predictor, pred_files = pred_files,
-                  show_progress = show_progress)
+                  load_function = load_function, show_progress = show_progress)
 
   return(preds)
   
@@ -180,14 +182,14 @@ check_unique_identifier <- function(pred_config, col) {
 }
 
 # load and concatenate all prediction files for one predictor provided via pred_id
-load_pred_files_predictor <- function(pred_id, pred_files, show_progress) {
+load_pred_files_predictor <- function(pred_id, pred_files, load_function, show_progress) {
   
   message("\tLoading predictions for: ", pred_id)
   
   # load all files for the given predictor
   preds <- lapply(pred_files[[pred_id]], FUN = function(file, show_progress) {
     message("\t\tReading: ", file)
-    fread(file, showProgress = show_progress)
+    load_function(file, showProgress = show_progress)
   }, show_progress = show_progress)
   
   # combine into one table
@@ -196,4 +198,30 @@ load_pred_files_predictor <- function(pred_id, pred_files, show_progress) {
   message("\tLoaded predictions with a total of ", nrow(preds), " rows.")
   
   return(preds)
+}
+
+# load one predictor in igvf format and convert to generic format
+load_igvf_pred_file <- function(file, showProgress) {
+  
+  # get cell type from header
+  header <- grep(readLines(file, n = 1000), pattern = "^#", value = TRUE)
+  cell_type <- grep(header, pattern = "BiosampleString", value = 1)
+  cell_type <- sub(".*BiosampleString:[ ]*", "", cell_type)
+  
+  # load predictions table and add cell type
+  pred <- fread(file, skip = length(header), showProgress = showProgress)
+  pred$CellType <- cell_type
+  
+  # select relevant columns for benchmarking pipeline
+  base_cols <- c("ElementChr", "ElementStart", "ElementEnd", "ElementName", "ElementClass",
+                 "ElementStrand", "GeneSymbol", "GeneEnsemblID", "GeneTSS", "CellType")
+  score_cols <- setdiff(colnames(pred), base_cols)
+  select_cols <- c(base_cols[c(1:3, 7, 10)], score_cols)
+  pred <- pred[, ..select_cols]
+  
+  # rename column to CRISPR benchmark internal columns
+  colnames(pred)[1:4] <- c("chr", "start", "end", "TargetGene")
+  
+  return(pred)
+  
 }

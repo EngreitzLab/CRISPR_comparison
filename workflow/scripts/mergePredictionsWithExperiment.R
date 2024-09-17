@@ -36,7 +36,8 @@ expt <- fread(file = snakemake@input$experiment, showProgress = FALSE,
 message("\tLoaded experimental data with ", nrow(expt), " rows.\n")
 
 # load all prediction files
-pred_list <- loadPredictions(config$pred, show_progress = FALSE)
+pred_list <- loadPredictions(config$pred, load_function = load_igvf_pred_file,
+                             show_progress = FALSE)
 
 # load tss and gene universe files
 tss_annot <- fread(snakemake@input$tss_universe, select = 1:6,
