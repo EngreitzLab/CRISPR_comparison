@@ -1,0 +1,9 @@
+pred_id	pred_col	boolean	alpha	aggregate_function	fill_value	inverse_predictor	pred_name_long	color	MainPredictors	AllPredictorScores
+ArchR	FDR	FALSE	NA	min	1	TRUE	ArchR (FDR)	#137983	TRUE	TRUE
+ArchR	Score	FALSE	NA	max	0	FALSE	ArchR (Score)	darkgray	FALSE	TRUE
+Cicero	Score	FALSE	NA	max	0	FALSE	Cicero (Score)	#2FC0CE	TRUE	TRUE
+SCENT	FDR	FALSE	NA	min	1	TRUE	SCENT (FDR)	#4682B4	TRUE	TRUE
+Signac	pvalue	FALSE	NA	min	1	TRUE	Signac (p-value)	purple4	FALSE	TRUE
+Signac	Score	FALSE	NA	max	0	FALSE	Signac (Score)	#C5204C	TRUE	TRUE
+scE2G	Score	FALSE	NA	max	0	FALSE	scE2G (Score)	#A698C9	TRUE	TRUE
+pgBoost	Score	FALSE	NA	max	0	FALSE	pgBoost (Score)	#83062E	TRUE	TRUE
