@@ -28,7 +28,7 @@ importPredConfig <- function(pred_config_file, expr = FALSE, include_col = "incl
   # load pred_config file and subset to required columns
   pred_config <- fread(pred_config_file, colClasses = cols)
   select_cols <- c(names(cols), intersect(include_col, colnames(pred_config)))
-  pred_config <- pred_config[, ..select_cols]
+  pred_config <- unique(pred_config[, ..select_cols])
   
   # rename include_col or add default if missing from pred_config 
   if (include_col %in% colnames(pred_config)) {
@@ -54,15 +54,15 @@ importPredConfig <- function(pred_config_file, expr = FALSE, include_col = "incl
   # baseline predictors not specified in pred config
   add_baseline_preds <- setdiff(baseline_config$pred_uid, pred_config$pred_uid)
   pred_config <- rbind(pred_config, subset(baseline_config, pred_uid %in% add_baseline_preds))
-  
-  # check that generated pred_uid and long predictor names are unique TODO: MOVE TO QC FUNCTION?
-  check_unique_identifier(pred_config, col = "pred_uid")
-  check_unique_identifier(pred_config, col = "pred_name_long")
-  
+
   # if specified filter out any predictors not included in benchmark
   if (filter == TRUE) {
     pred_config <- pred_config[pred_config$include == TRUE, ]
   }
+  
+  # check that generated pred_uid names are unique and all colors are valid color names/codes
+  check_unique_identifier(pred_config, col = "pred_uid")
+  check_colors(pred_config)
   
   return(pred_config)
   
@@ -168,13 +168,24 @@ create_baseline_pred_config <- function(expr) {
 
 # check that a given column is a unique identifier in a predictor config file
 check_unique_identifier <- function(pred_config, col) {
-  
-  # get specified column for all predictors to include in benchmark
-  ids <- pred_config[pred_config$include == TRUE, ][[col]]
-  
-  # raise error if ids in specified column are not unique identifiers
-  if (any(table(ids) > 1)) {
+  if (any(table(pred_config[[col]]) > 1)) {
     stop("'", col, "' in pred_config_file is not a unique identifier.", call. = FALSE)
+  }
+}
+
+# check if colors in pred_config file are valid color ids
+check_colors <- function(pred_config) {
+ 
+   # check that colors are valid options
+  valid_colors <- vapply(pred_config$color, FUN = function(col) {
+    tryCatch(expr = is.matrix(col2rgb(col)),
+             error = function(err) return(FALSE))
+  }, FUN.VALUE = logical(1))
+  
+  # raise error if invalid color specification was found
+  invalid_colors <- names(valid_colors[valid_colors == FALSE])
+  if (length(invalid_colors > 0)) {
+    stop("Invalid color specification(s): ", paste(invalid_colors, collapse = ", "), call. = FALSE)
   }
   
 }

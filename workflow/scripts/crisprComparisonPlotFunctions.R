@@ -61,7 +61,7 @@ perfToTable <- function(perf_list, measure_name, x.measure_name) {
   
 }
 
-# make a eceiver operating characteristic (ROC) curve
+# make a receiver operating characteristic (ROC) curve
 plotROC <- function(merged, pos_col, pred_config, colors, thresholds = NULL,
                     plot_name = "ROC curve full experimental data", line_width = 1, 
                     point_size = 3, text_size = 15) {
@@ -921,7 +921,7 @@ savePlotList <- function(plot_list, basename, path = ".", ...) {
   }
   
   # save list of plots to output files
-  invisible(mapply(FUN = ggsave, outfiles, plot_list, MoreArgs = list(...)))
+  invisible(mapply(FUN = ggsave, outfiles, plot_list, MoreArgs = list(limitsize = FALSE, ...)))
   
 }
 

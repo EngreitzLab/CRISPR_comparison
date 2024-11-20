@@ -43,6 +43,10 @@ merged <- processMergedData(merged, pred_config = pred_config, filter_valid_conn
                             include_missing_predictions = snakemake@params$include_missing_predictions,
                             distToTSS_as_kb = TRUE)
 
+# only retain pred_config entries also in merged data (important when not using an include column)
+pred_config <- subset(pred_config, pred_uid %in% unique(merged$pred_uid))
+check_unique_identifier(pred_config, col = "pred_name_long")
+
 # extract colors for predictors in all plots
 if (all(is.na(pred_config$color))) {
   pred_colors <- NULL

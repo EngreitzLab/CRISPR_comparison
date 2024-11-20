@@ -106,26 +106,6 @@ qcPredConfig <- function(pred_config, pred_list) {
          call. = FALSE)
   }
   
-  # check that pred_id and pred_col create a unique identifier
-  config_rows <- nrow(pred_config)
-  unique_ids <- nrow(unique(pred_config[, c("pred_id", "pred_col"), with = FALSE]))
-  if (config_rows != unique_ids) {
-    stop("pred_id and pred_col in pred_config do not provide unique identifiers for predictions.",
-         call. = FALSE)
-  }
-  
-  # check that colors are valid options
-  valid_colors <- vapply(pred_config$color, FUN = function(col) {
-    tryCatch(expr = is.matrix(col2rgb(col)),
-             error = function(err) return(FALSE))
-  }, FUN.VALUE = logical(1))
-  
-  # raise error if invalid color specification was found
-  invalid_colors <- names(valid_colors[valid_colors == FALSE])
-  if (length(invalid_colors > 0)) {
-    stop("Invalid color specification(s): ", paste(invalid_colors, collapse = ", "), call. = FALSE)
-  }
-  
   message("Done")
   
 }
