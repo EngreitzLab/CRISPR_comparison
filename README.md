@@ -89,7 +89,6 @@ predictions.
 
 * Predictions
   * <https://docs.google.com/spreadsheets/d/1xold84upBFigZPFQGUMeNC5t2id-Bub_Y1o5Xid_MHw/edit?usp=sharing>
-  * See `resources/example/K562_ABC_K562HiC_chrx.txt.gz` as an example.
 
 Cross-validated ENCODE-rE2G predictions from
 [Gschwind et al., 2023](https://www.biorxiv.org/content/10.1101/2023.11.09.563812v1) for
