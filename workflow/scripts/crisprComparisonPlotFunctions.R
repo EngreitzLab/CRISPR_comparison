@@ -86,7 +86,7 @@ plotROC <- function(merged, pos_col, pred_config, colors, thresholds = NULL,
 
   # create PRC plot (caution, this assumes that there at least 1 quant and 1 bool predictor!)
   ggplot(roc_quant, aes(x = FPR, y = TPR, color = pred_name_long)) +
-    geom_line(size = line_width) +
+    geom_line(linewidth = line_width) +
     geom_point(data = roc_bool, size = point_size) +
     labs(title = plot_name, x  = "False postitive rate", y = "True postitive rate",
          color = "Predictor") + 
@@ -211,7 +211,7 @@ count_pairs_subset <- function(merged, subset_col, pos_col, all = TRUE) {
 
 # process merged data for benchmarking analyses
 processMergedData <- function(merged, pred_config, filter_valid_connections = TRUE,
-                              include_missing_predictions = TRUE, distToTSS_as_kb = TRUE) {
+                              include_missing_predictions = TRUE) {
   
   # only retain predictors that are specified to be included in plots
   plot_preds <- pred_config[pred_config$include == TRUE, ][["pred_uid"]]
@@ -230,15 +230,6 @@ processMergedData <- function(merged, pred_config, filter_valid_connections = TR
   # filter out CRE - gene pairs with missing predictions if specified
   if (include_missing_predictions == FALSE) {
     merged <- merged[merged$Prediction == 1, ]
-  }
-  
-  # convert distance to TSS baseline predictor to kb if specified
-  if (distToTSS_as_kb == TRUE) {
-    merged <- merged %>% 
-      mutate(pred_value = if_else(pred_uid == "baseline.distToTSS", true = pred_value / 1000,
-                                  false = pred_value)) %>% 
-      mutate(pred_name_long = if_else(pred_uid == "baseline.distToTSS",
-                                      true = "Distance to TSS (kb)", false = pred_name_long))
   }
   
   return(merged)
@@ -306,9 +297,8 @@ makePRSummaryTableBS <- function(merged, pred_config, pos_col, min_sensitivity =
   # convert merged to wide format for bootstrapping
   merged_bs <- convertMergedForBootstrap(merged, pred_config = pred_config, pos_col = pos_col)
   
-  # extract defined thresholds
-  thresholds <- deframe(select(pred_config, pred_uid, alpha))
-  thresholds <- thresholds[!is.na(thresholds) & names(thresholds) %in% colnames(merged_bs)]
+  # extract defined thresholds for provided predictors
+  thresholds <- get_threshold_values(pred_config, merged_bs = merged_bs)
   
   # bootstrap overall performance (AUPRC) and reformat for performance summary table
   perf <- bootstrapPerformanceIntervals(merged_bs, metric = "auprc", R = R, conf = conf,
@@ -522,14 +512,19 @@ plotPredictorsVsExperiment <- function(merged, pos_col = "Regulated", pred_names
 }
 
 # plot distance distributions for experimental positives and negatives
-plotDistanceDistribution <- function(merged, dist = "baseline.distToTSS", pos_col = "Regulated",
-                                     text_size = 13) {
+plotDistanceDistribution <- function(merged, dist = "baseline.distToTSS", convert_dist_kb = TRUE,
+                                     pos_col = "Regulated", text_size = 13) {
   
   # get data for distance and add label for faceting
   dist_data <- merged %>% 
     filter(pred_uid == dist) %>% 
     mutate(label = if_else(get(pos_col) == TRUE, true = "Positives", false = "Negatives")) %>% 
     mutate(label = factor(label, levels = c("Positives", "Negatives")))
+  
+  # convert distance from bp to kb if specified
+  if (convert_dist_kb == TRUE) {
+    dist_data$pred_value <- dist_data$pred_value / 1000
+  }
   
   # plot distance distribution for all pairs in experimental data
   ggplot(dist_data, aes(x = pred_value, fill = label)) +
@@ -1258,3 +1253,25 @@ calcPerfSummaryOnePred <- function(pr_df, pred_config, min_sensitivity) {
   
 }
 
+# get optional predictor thresholds from pred_config file and invert for inverse predictors
+get_threshold_values <- function(pred_config, merged_bs) {
+  
+  # extract defined thresholds and "invert" (*-1) thresholds for inverse predictors
+  thresholds <- deframe(select(pred_config, pred_uid, alpha))
+  thresholds[pred_config$inverse_predictor] <- thresholds[pred_config$inverse_predictor] * -1
+  
+  # only return non-NA thresholds that are found in merged data
+  thresholds <- thresholds[!is.na(thresholds) & names(thresholds) %in% colnames(merged_bs)]
+  
+  return(thresholds)
+  
+}
+
+# convert distance to TSS baseline predictor from bp to kb (TO DO: REMOVE IF NOT USED)
+convert_dist_to_kb <- function(merged) {
+  merged %>% 
+    mutate(pred_value = if_else(pred_uid == "baseline.distToTSS", true = pred_value / 1000,
+                                false = pred_value)) %>% 
+    mutate(pred_name_long = if_else(pred_uid == "baseline.distToTSS",
+                                    true = "Distance to TSS (kb)", false = pred_name_long))
+}
