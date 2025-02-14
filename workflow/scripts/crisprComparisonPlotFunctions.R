@@ -291,14 +291,15 @@ calcPRCurves <- function(df, pred_config, pos_col) {
 }
 
 # create bootstrapped performance summary table for all predictors in a PR table
-makePRSummaryTableBS <- function(merged, pred_config, pos_col, min_sensitivity = 0.7, R = 1000,
-                                 conf = 0.95, ncpus = 1) {
+makePRSummaryTableBS <- function(merged, pred_config, pos_col, threshold_col = "alpha",
+                                 min_sensitivity = 0.7, R = 1000, conf = 0.95, ncpus = 1) {
   
   # convert merged to wide format for bootstrapping
   merged_bs <- convertMergedForBootstrap(merged, pred_config = pred_config, pos_col = pos_col)
   
   # extract defined thresholds for provided predictors
-  thresholds <- get_threshold_values(pred_config, merged_bs = merged_bs)
+  preds <- setdiff(colnames(merged_bs), c("name", "Regulated", "dataset"))
+  thresholds <- getThresholdValues(pred_config, predictors = preds, threshold_col = threshold_col)
   
   # bootstrap overall performance (AUPRC) and reformat for performance summary table
   perf <- bootstrapPerformanceIntervals(merged_bs, metric = "auprc", R = R, conf = conf,
@@ -1250,20 +1251,6 @@ calcPerfSummaryOnePred <- function(pr_df, pred_config, min_sensitivity) {
   }
   
   return(perf_summary)
-  
-}
-
-# get optional predictor thresholds from pred_config file and invert for inverse predictors
-get_threshold_values <- function(pred_config, merged_bs) {
-  
-  # extract defined thresholds and "invert" (*-1) thresholds for inverse predictors
-  thresholds <- deframe(select(pred_config, pred_uid, alpha))
-  thresholds[pred_config$inverse_predictor] <- thresholds[pred_config$inverse_predictor] * -1
-  
-  # only return non-NA thresholds that are found in merged data
-  thresholds <- thresholds[!is.na(thresholds) & names(thresholds) %in% colnames(merged_bs)]
-  
-  return(thresholds)
   
 }
 
