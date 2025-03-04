@@ -59,12 +59,13 @@ rule mergePredictionsWithExperiment:
   params:
     pos_col = "Regulated",
     include_col = lambda wildcards: get_optional_parameter(wildcards, "include_col", None),
+    pred_format = lambda wildcards: get_optional_parameter(wildcards, "pred_file_format", "ENCODE"),
     filter_tss = lambda wildcards: get_optional_parameter(wildcards, "filter_pred_tss", True),
     filter_include_col = False
   log: "results/{comparison}/logs/mergePredictionsWithExperiment.log"
   conda: "../envs/r_crispr_comparison.yml"
   resources:
-    mem_mb = 128000
+    mem_mb = 32000
   script:
    "../../workflow/scripts/mergePredictionsWithExperiment.R"
    

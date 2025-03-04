@@ -32,10 +32,7 @@ pred_config <- importPredConfig(snakemake@input$pred_config,
                                 filter = snakemake@params$filter_include_col)
 
 # load experimental data
-message("Reading CRISPR data in: ", snakemake@input$experiment)
-expt <- fread(file = snakemake@input$experiment, showProgress = FALSE,
-              colClasses = c("ValidConnection" = "character"))
-message("\tLoaded CRISPR data for ", nrow(expt), " E-G pairs\n")
+expt <- loadExpt(snakemake@input$experiment, showProgress = FALSE)
 
 # load tss and gene universe files
 tss_annot <- fread(snakemake@input$tss_universe, select = 1:6,
@@ -44,7 +41,8 @@ gene_annot <- fread(snakemake@input$gene_universe, select = 1:6,
                     col.names = c("chr", "start", "end", "gene", "score", "strand"))
 
 # load all prediction files
-pred_list <- loadPredictions(config$pred, show_progress = FALSE)
+pred_list <- loadPredictions(config$pred, format = snakemake@params$pred_format,
+                             show_progress = FALSE)
 
 # if specified, filter out any predictions where elements overlap annotated gene TSS
 if (snakemake@params$filter_tss == TRUE) {
@@ -52,7 +50,7 @@ if (snakemake@params$filter_tss == TRUE) {
   pred_list <- filterPredictionsTSS(pred_list, tss_annot = tss_annot, summary_file = tss_filt_file)
 }
 
-# combined files per predictor, if files for multiple cell types were provided
+# combine files per predictor, if files for multiple cell types were provided
 pred_list <- lapply(pred_list, FUN = rbindlist)
 
 # load optional cell mapping files if provided

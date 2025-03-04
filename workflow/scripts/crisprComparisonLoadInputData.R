@@ -67,20 +67,48 @@ importPredConfig <- function(pred_config_file, expr = FALSE, include_col = "incl
   
 }
 
+#' Import experimental CRISPR data
+#' 
+#' Import CRISPR data used as ground truth for benchmarks.
+#' @param expt_file Path to experimental CRISPR data.
+loadExpt <- function(expt_file, showProgress = FALSE) {
+  
+  message("Reading CRISPR data in: ", expt_file)
+  
+  # load CRISPR data with correct class for 'ValidConnection' column
+  expt <- fread(file = expt_file, showProgress = showProgress,
+                colClasses = c("ValidConnection" = "character"))
+  
+  message("\tLoaded CRISPR data for ", nrow(expt), " E-G pairs\n")
+  
+  return(expt)
+  
+}
 
 #' Load predictions
 #' 
 #' Load input prediction files and create a list of tables, containing data for all predictors.
 #' 
 #' @param pred_files Named list containing all input prediction files.
+#' @param load_function Predictor file format to use correct import function (Default: generic).
 #' @param show_progress (logical) Should detailed loading progress be showed?
-loadPredictions <- function(pred_files, show_progress = FALSE) {
+loadPredictions <- function(pred_files, format = c("generic", "ENCODE", "IGVF"),
+                            show_progress = FALSE) {
+  
+  # pick import function based on specified predictors file format
+  format <- match.arg(format)
+  load_function <- switch(
+    format,
+    "generic" = fread,
+    "ENCODE" = load_encode_pred_file,
+    "IGVF" = load_igvf_pred_file
+    )
   
   message("Loading prediction files:")
   
   pred_ids <- structure(names(pred_files), names = names(pred_files))
   preds <- lapply(pred_ids, FUN = load_pred_files_predictor, pred_files = pred_files,
-                  show_progress = show_progress)
+                  load_function = load_function, show_progress = show_progress)
 
   return(preds)
   
@@ -156,6 +184,45 @@ loadGeneExpr <- function(...) {
   return(expr)
 }
 
+## Functions to load predictions from different formats --------------------------------------------
+
+# load one predictor file in ENCODE format (same as generic with optional "#" for header row)
+load_encode_pred_file <- function(file, showProgress) {
+  
+  # load predictions and remove optional "#" in header row
+  pred <- fread(file)
+  colnames(pred)[[1]] <- sub("^#", "", colnames(pred)[[1]])
+  
+  return(pred)
+  
+}
+
+# load one predictor file in igvf format and convert to generic format
+load_igvf_pred_file <- function(file, showProgress) {
+  
+  # get cell type from header
+  header <- grep(readLines(file, n = 1000), pattern = "^#", value = TRUE)
+  cell_type <- grep(header, pattern = "BiosampleString", value = 1)
+  cell_type <- sub(".*BiosampleString:[ ]*", "", cell_type)
+  
+  # load predictions table and add cell type
+  pred <- fread(file, skip = length(header), showProgress = showProgress)
+  pred$CellType <- cell_type
+  
+  # select relevant columns for benchmarking pipeline
+  base_cols <- c("ElementChr", "ElementStart", "ElementEnd", "ElementName", "ElementClass",
+                 "ElementStrand", "GeneSymbol", "GeneEnsemblID", "GeneTSS", "CellType")
+  score_cols <- setdiff(colnames(pred), base_cols)
+  select_cols <- c(base_cols[c(1:4, 7, 10)], score_cols)
+  pred <- pred[, ..select_cols]
+  
+  # rename column to CRISPR benchmark internal columns
+  colnames(pred)[1:5] <- c("chr", "start", "end", "name", "TargetGene")
+  
+  return(pred)
+  
+}
+
 ## Helper functions --------------------------------------------------------------------------------
 
 # add baseline predictors to pred config table
@@ -224,8 +291,8 @@ check_colors <- function(pred_config) {
   
 }
 
-# load and concatenate all prediction files for one predictor provided via pred_id
-load_pred_files_predictor <- function(pred_id, pred_files, show_progress) {
+# load all prediction files for one predictor provided via pred_id
+load_pred_files_predictor <- function(pred_id, pred_files, load_function, show_progress) {
   
   message("\tLoading predictions for: ", pred_id)
   
@@ -233,7 +300,7 @@ load_pred_files_predictor <- function(pred_id, pred_files, show_progress) {
   files <- structure(pred_files[[pred_id]], names = pred_files[[pred_id]])
   preds <- lapply(files, FUN = function(file, show_progress) {
     message("\t\tReading: ", file)
-    fread(file, showProgress = show_progress)
+    load_function(file, showProgress = show_progress)
   }, show_progress = show_progress)
   
   # report the total number of loaded E-G pairs
@@ -247,7 +314,7 @@ load_pred_files_predictor <- function(pred_id, pred_files, show_progress) {
 filter_pred_tss <- function(pred, tss) {
   
   # get unique element coordinates and names for predictions
-  element_cols <- c(colnames(pred)[[1]], c("start", "end", "name"))  # 1st col can be 'chr' / '#chr'
+  element_cols <- c("chr", "start", "end", "name")
   elements <- unique(pred[, ..element_cols])
   
   # create GRanges object for both elements and TSSs

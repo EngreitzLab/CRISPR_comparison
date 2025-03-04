@@ -59,12 +59,6 @@ qcPredictions <- function(pred_list, pred_config, one_tss = TRUE)  {
     stop("Prediction set called 'baseline' not allowed. Please rename.", call. = FALSE)
   }
   
-  # remove '#' from column names if present (bed-style headers)
-  pred_list <- lapply(pred_list, FUN = function(x) {
-    colnames(x)[1] <- sub("^#", "", colnames(x)[1])
-    return(x)
-  })
-  
   # make sure that minimum required columns are present
   base_cols <- c("chr", "start", "end", "TargetGene", "CellType")
   invisible(lapply(names(pred_list), FUN = check_min_cols, pred_list = pred_list,
