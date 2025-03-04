@@ -118,7 +118,10 @@ code for this predictor depends on its content:
  * color: R color name or hex code to use in plots for the predictor. If NA while colors for other
  predictors are set, this color will be gray. If all colors are NA, the pipeline will pick some
  colors.
- * plot_crispr: (optional column, TRUE/FALSE) Should this predictor be included in the results?
+ * include: (optional column, TRUE/FALSE) Should this predictor be included in the benchmark?
+ Different include columns can be specified using 'include_col' in the `config.yml` file. E.g. 
+ specifying `include_col: "MyPredictors"` will in a comparison in the `config.yml` will include all
+ predictors specified in the 'MyPredictors' column on the pred_config file.
  
 See `resources/example/pred_config.txt` for an example. If this file is left out (`NULL` in 
 `config.txt`), a file with default values will be generated, however they might not be appropriate
