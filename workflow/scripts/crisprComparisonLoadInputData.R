@@ -3,7 +3,6 @@
 library(data.table)
 library(dplyr)
 
-
 #' Import predictor config
 #' 
 #' Import predictor config file specifying parameters for each predictor in the benchmark and add
@@ -87,6 +86,41 @@ loadPredictions <- function(pred_files, show_progress = FALSE) {
   
 }
 
+#' Filter predictions for TSS overlaps
+#' 
+#' Filter out any predictions, where elements overlap annotated gene TSS
+#' 
+#' @param pred_list List containing predictions for all predictors.
+#' @param tss_annot Table containing TSS annotations from tss_universe file.
+#' @param summary_file Path to file where number of filtered out elements and E-G pairs will be
+#'  reported.
+filterPredictionsTSS <- function(pred_list, tss_annot, summary_file) {
+  
+  # create a GRanges object containing TSS coordinates for filtering
+  tss <- makeGRangesFromDataFrame(tss_annot, seqnames.field = "chrTSS", start.field = "startTSS",
+                                  end.field = "endTSS", starts.in.df.are.0based = TRUE)
+  
+  # filter all predictions based on TSS overlaps
+  message("Filtering out predictions overlapping gene TSS for:")
+  pred_ids <- structure(names(pred_list), names = names(pred_list))
+  pred_list <- lapply(pred_ids, FUN = function(x, pred_list, tss) {
+    message("\t", x)
+    lapply(pred_list[[x]], FUN = filter_pred_tss, tss = tss)
+  }, pred_list = pred_list, tss = tss)
+  
+  # extract TSS filtering results and combined into one table
+  tss_filter <- lapply(pred_list, FUN = lapply, `[[`, 2)
+  tss_filter <- rbindlist(lapply(tss_filter, FUN = rbindlist, idcol = "file"), idcol = "pred_id")
+  
+  # write TSS filtering stats to summary file
+  fwrite(tss_filter, file = summary_file, sep = "\t", quote = FALSE, na = "NA")
+  
+  # remove filter from 'preds' list
+  pred_list <- lapply(pred_list, FUN = lapply, `[[`, 1)
+  
+  return(pred_list)
+  
+}
 
 #' Toggle baseline predictors on or off for benchmarks
 #' 
@@ -196,15 +230,38 @@ load_pred_files_predictor <- function(pred_id, pred_files, show_progress) {
   message("\tLoading predictions for: ", pred_id)
   
   # load all files for the given predictor
-  preds <- lapply(pred_files[[pred_id]], FUN = function(file, show_progress) {
+  files <- structure(pred_files[[pred_id]], names = pred_files[[pred_id]])
+  preds <- lapply(files, FUN = function(file, show_progress) {
     message("\t\tReading: ", file)
     fread(file, showProgress = show_progress)
   }, show_progress = show_progress)
   
-  # combine into one table
-  preds <- rbindlist(preds)
-  
-  message("\tLoaded predictions with a total of ", nrow(preds), " rows.")
+  # report the total number of loaded E-G pairs
+  n_pairs <- sum(vapply(preds, FUN = nrow, FUN.VALUE = integer(1)))
+  message("\t\tLoaded predictions for ", n_pairs, " E-G pairs")
   
   return(preds)
+}
+
+# filter one prediction file for elements not overlapping any provided TSS 
+filter_pred_tss <- function(pred, tss) {
+  
+  # get unique element coordinates and names for predictions
+  element_cols <- c(colnames(pred)[[1]], c("start", "end", "name"))  # 1st col can be 'chr' / '#chr'
+  elements <- unique(pred[, ..element_cols])
+  
+  # create GRanges object for both elements and TSSs
+  elements <- makeGRangesFromDataFrame(elements, seqnames.field = element_cols[[1]],
+                                       keep.extra.columns = TRUE, starts.in.df.are.0based = TRUE)
+  
+  # filter out elements that are overlapping any TSS
+  elements_filt <- subsetByOverlaps(elements, tss, invert = TRUE)
+  pred_filt <- pred[pred$name %in% elements_filt$name, ]
+  
+  # get the number of filtered out elements and predictions
+  filter <- data.table(removed_elements = length(elements) - length(elements_filt),
+                       removed_predictions = nrow(pred) - nrow(pred_filt))
+  
+  return(list(pred_filt, filter))
+  
 }

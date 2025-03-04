@@ -20,13 +20,13 @@ def get_pred_config(wildcards):
   return pred_config
 
 # get optional input parameter if they are specified in config
-def get_optional_parameter(wildcards, param):
+def get_optional_parameter(wildcards, param, default=[]):
   try:
     param = config["comparisons"][wildcards.comparison][param]
   except KeyError:
     param = None
   if param is None:
-    param = []
+    param = default
   else:
     if type(param) is dict:
       param = param.values()
@@ -58,12 +58,13 @@ rule mergePredictionsWithExperiment:
     merged = temp("results/{comparison}/expt_pred_merged.txt.gz")
   params:
     pos_col = "Regulated",
-    include_col = lambda wildcards: get_optional_parameter(wildcards, "include_col"),
+    include_col = lambda wildcards: get_optional_parameter(wildcards, "include_col", None),
+    filter_tss = lambda wildcards: get_optional_parameter(wildcards, "filter_pred_tss", True),
     filter_include_col = False
   log: "results/{comparison}/logs/mergePredictionsWithExperiment.log"
   conda: "../envs/r_crispr_comparison.yml"
   resources:
-    mem_mb = 32000
+    mem_mb = 128000
   script:
    "../../workflow/scripts/mergePredictionsWithExperiment.R"
    
@@ -94,11 +95,11 @@ rule comparePredictionsToExperiment:
      pos_col = "Regulated",
      min_sensitivity = 0.7,
      dist_bins_kb = lambda wildcards: config["comparisons"][wildcards.comparison]["dist_bins_kb"],
-     include_col = lambda wildcards: get_optional_parameter(wildcards, "include_col")
+     include_col = lambda wildcards: get_optional_parameter(wildcards, "include_col", None)
   conda: "../envs/r_crispr_comparison.yml"
   resources:
     mem_mb = 32000,
-    runtime = "2h"
+    runtime = "6h"
   script:
     "../../workflow/scripts/comparePredictionsToExperiment.Rmd"
     

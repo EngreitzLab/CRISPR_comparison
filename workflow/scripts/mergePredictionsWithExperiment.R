@@ -16,8 +16,10 @@ suppressPackageStartupMessages({
   source(file.path(snakemake@scriptdir, "crisprComparisonSimplePredictors.R"))
 })
 
-
 ## load data ---------------------------------------------------------------------------------------
+
+# directory for all output
+outdir <- dirname(snakemake@output$merged)
 
 # config entry for this comparison is used to load named list of input files
 config <- snakemake@config$comparisons[[snakemake@wildcards$comparison]]
@@ -30,19 +32,28 @@ pred_config <- importPredConfig(snakemake@input$pred_config,
                                 filter = snakemake@params$filter_include_col)
 
 # load experimental data
-message("Reading experimental data in: ", snakemake@input$experiment)
+message("Reading CRISPR data in: ", snakemake@input$experiment)
 expt <- fread(file = snakemake@input$experiment, showProgress = FALSE,
               colClasses = c("ValidConnection" = "character"))
-message("\tLoaded experimental data with ", nrow(expt), " rows.\n")
-
-# load all prediction files
-pred_list <- loadPredictions(config$pred, show_progress = FALSE)
+message("\tLoaded CRISPR data for ", nrow(expt), " E-G pairs\n")
 
 # load tss and gene universe files
 tss_annot <- fread(snakemake@input$tss_universe, select = 1:6,
                    col.names = c("chrTSS", "startTSS", "endTSS", "gene", "score", "strandTSS"))
 gene_annot <- fread(snakemake@input$gene_universe, select = 1:6,
                     col.names = c("chr", "start", "end", "gene", "score", "strand"))
+
+# load all prediction files
+pred_list <- loadPredictions(config$pred, show_progress = FALSE)
+
+# if specified, filter out any predictions where elements overlap annotated gene TSS
+if (snakemake@params$filter_tss == TRUE) {
+  tss_filt_file <- file.path(outdir, "filter_predictions_tss_results.txt")
+  pred_list <- filterPredictionsTSS(pred_list, tss_annot = tss_annot, summary_file = tss_filt_file)
+}
+
+# combined files per predictor, if files for multiple cell types were provided
+pred_list <- lapply(pred_list, FUN = rbindlist)
 
 # load optional cell mapping files if provided
 ct_map_files <- config$cell_type_mapping
@@ -68,9 +79,6 @@ pred_list <- qcPredictions(pred_list, pred_config = pred_config, one_tss = FALSE
 expt <- qcExperiment(expt, pos_col = snakemake@params$pos_col, remove_na_pos = TRUE)
 
 ## process input data ------------------------------------------------------------------------------
-
-# base output directory for any output
-outdir <- dirname(snakemake@output$merged)
 
 # filter experimental data for genes in gene universe
 missing_file <- file.path(outdir, "expt_missing_from_gene_universe.txt")
@@ -129,7 +137,7 @@ merged <- rbind(merged, baseline_preds)
 ## write to file -----------------------------------------------------------------------------------
 
 # write merged data to main output file
-readr::write_tsv(merged, file = snakemake@output$merged)
+fwrite(merged, file = snakemake@output$merged, sep = "\t", quote = FALSE, na = "NA")
 
 message("\nAll done!")
 

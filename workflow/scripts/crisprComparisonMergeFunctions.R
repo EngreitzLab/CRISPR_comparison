@@ -209,7 +209,7 @@ checkExistenceOfExperimentalGenesInPredictions <- function(expt, pred_list, summ
   # check which genes occur in predictions
   expt_genes_in_pred <- lapply(pred_list, function(pred) {expt_genes %in% unique(pred$TargetGene) })
   
-  # create summary containing all experimental genes and their occurence in each prediction set
+  # create summary containing all experimental genes and their occurrence in each prediction set
   summary <- data.table(experimental_genes = expt_genes, as.data.table(expt_genes_in_pred))
   
   # write to output file
@@ -236,9 +236,10 @@ combineAllExptPred <- function(expt, pred_list, config, outdir, fill_pred_na = T
   output$pred_uid <- paste(output$pred_id, output$pred_col, sep = ".")
   
   # rearrange columns for output
-  left_cols <- colnames(output)[seq(2, ncol(output) - 4)]
-  output_col_order <- c(left_cols, "pred_uid", "pred_id", "pred_col", "pred_value", "Prediction")
-  output <- output[, output_col_order, with = FALSE]
+  left_cols <- colnames(output)[seq(2, ncol(output) - 5)]
+  output_col_order <- c(left_cols, "pred_elements", "pred_uid", "pred_id", "pred_col", "pred_value",
+                        "Prediction")
+  setcolorder(output, output_col_order)
   
   return(output)
   
@@ -289,8 +290,10 @@ combineSingleExptPred <- function(expt, pred, pred_name, config, outdir, fill_pr
   ovl <- findOverlaps(expt_gr, pred_gr)
   
   # merge predictions with experimental data
-  pred_merge_cols <- c("PredictionCellType", config_filt$pred_col)  # columns in predictions to add
-  merged <- cbind(expt[queryHits(ovl)], pred[subjectHits(ovl), pred_merge_cols, with = FALSE])
+  pred_cols <- c("PredictionCellType", "name", config_filt$pred_col)
+  pred_col_names <- c("PredictionCellType", "pred_elements", config_filt$pred_col)
+  merged <- cbind(expt[queryHits(ovl)],
+                  pred[subjectHits(ovl), setNames(.SD, pred_col_names), .SDcols = pred_cols])
   
   # Step 2: aggregating pairs with multiple overlaps -----------------------------------------------
   
@@ -298,7 +301,7 @@ combineSingleExptPred <- function(expt, pred, pred_name, config, outdir, fill_pr
   # deletion). in these cases need to summarize, e.g., sum ABC.Score across model elements
   # overlapping the deletion. this requires a config file describing how each prediction column
   # should be aggregated
-  agg_cols <- setdiff(colnames(merged), config_filt$pred_col)
+  agg_cols <- setdiff(colnames(merged), c("pred_elements", config_filt$pred_col))
   merged <- collapseEnhancersOverlappingMultiplePredictions(merged, config = config_filt,
                                                             agg_cols = agg_cols)
   
@@ -324,6 +327,7 @@ combineSingleExptPred <- function(expt, pred, pred_name, config, outdir, fill_pr
   
   # fill in missing values
   expt_missing_preds$PredictionCellType <- NA_character_
+  expt_missing_preds$pred_elements <- NA_character_
   expt_missing_preds <- fillMissingPredictions(expt_missing_preds, config = config_filt,
                                                agg_cols = agg_cols)
   
@@ -341,7 +345,7 @@ combineSingleExptPred <- function(expt, pred, pred_name, config, outdir, fill_pr
   
   # rename CellType column from experimental input to ExperimentCellType
   colnames(output)[colnames(output) == "CellType"] <- "ExperimentCellType"
-  
+
   # sort output according to genomic coordinates of enhancers and target gene
   sortcols <- c("chrom", "chromStart", "chromEnd", "measuredGeneSymbol")
   setorderv(output, sortcols)
@@ -353,35 +357,21 @@ combineSingleExptPred <- function(expt, pred, pred_name, config, outdir, fill_pr
 # aggregate experimental enhancers overlapping multiple predicted enhancers
 collapseEnhancersOverlappingMultiplePredictions <- function(df, config, agg_cols) {
   
-  # summarize columns as defined in config
+  # function to concatenate element ids into one string
+  cat_elements <- function(x) {
+    out <- paste(x, collapse = ",")
+    return(out)
+  }
+  
+  # create vectors of all columns to process (predictor scores and elements) and aggregate functions
+  process_cols <- c("pred_elements", config$pred_col)
+  agg_functions <- c("cat_elements", config$aggregate_function)
+  
+  # summarize columns based on defined aggregation functions
   all_list <- mapply(FUN = function(pred_col, agg_func) {
     agg_func <- get(agg_func)  # get function from string
     df[, setNames(.(agg_func(get(pred_col))), pred_col), by = agg_cols]
-  }, pred_col = config$pred_col, agg_func = config$aggregate_function, SIMPLIFY = FALSE)
-  
-  # special handling for aggregating the class column
-  class_agg <- function(x) {
-    if ("promoter" %in% x) {
-      return("promoter")
-    } else if ("tss" %in% x) {
-      return("tss")
-    } else if ("genic" %in% x) {
-      return("genic")
-    } else if ("distal" %in% x) {
-      return("distal")
-    } else if ("intergenic" %in% x) {
-      return("intergenic")
-    } else {
-      return("UNKNOWN")
-    }
-  }
-  
-  # TODO: implement if class from predictions is added during merging
-  #if ("class" %in% colnames(df)) {
-  #  class_temp <- aggregate(df$class, by = list_for_agg, FUN = class_agg)
-  #  colnames(class_temp)[colnames(class_temp) == "x"] <- "class"
-  #  all_list$class <- class_temp
-  #}
+  }, pred_col = process_cols, agg_func = agg_functions, SIMPLIFY = FALSE)
   
   # merge all the aggregates together to make collapsed data.frame
   # TODO: AVOID INTERMEDIATE DATA.FRAME BY Reduce
