@@ -90,25 +90,31 @@ loadExpt <- function(expt_file, showProgress = FALSE) {
 #' Load input prediction files and create a list of tables, containing data for all predictors.
 #' 
 #' @param pred_files Named list containing all input prediction files.
-#' @param load_function Predictor file format to use correct import function (Default: generic).
+#' @param format Predictor file format to use correct import function (Default: generic). Either a
+#'   a single string specifying the format of all files, or a vector of equal length as pred_files
+#'   specifying the format of each file individually.
 #' @param show_progress (logical) Should detailed loading progress be showed?
-loadPredictions <- function(pred_files, format = c("generic", "ENCODE", "IGVF"),
-                            show_progress = FALSE) {
+loadPredictions <- function(pred_files, format = "generic", show_progress = FALSE) {
   
-  # pick import function based on specified predictors file format
-  format <- match.arg(format)
-  load_function <- switch(
+  # check format argument
+  possible_formats <- c("generic", "ENCODE", "IGVF")
+  format <- process_format_arg(format, pred_files, possible_formats = possible_formats)
+  
+  # pick import functions based on specified predictors file format
+  load_functions <- case_match(
     format,
-    "generic" = fread,
-    "ENCODE" = load_encode_pred_file,
-    "IGVF" = load_igvf_pred_file
-    )
+    "generic" ~ "fread",
+    "ENCODE" ~ "load_encode_pred_file",
+    "IGVF" ~ "load_igvf_pred_file"
+  )
   
   message("Loading prediction files:")
   
+  # import all pred_files as a list using the correct load function for each format
   pred_ids <- structure(names(pred_files), names = names(pred_files))
-  preds <- lapply(pred_ids, FUN = load_pred_files_predictor, pred_files = pred_files,
-                  load_function = load_function, show_progress = show_progress)
+  preds <- mapply(FUN = load_pred_files_predictor, pred_ids, load_functions,
+                  MoreArgs = list(pred_files = pred_files, show_progress = show_progress),
+                  SIMPLIFY = FALSE)
 
   return(preds)
   
@@ -200,24 +206,28 @@ load_encode_pred_file <- function(file, showProgress) {
 # load one predictor file in igvf format and convert to generic format
 load_igvf_pred_file <- function(file, showProgress) {
   
-  # get cell type from header
+  # get header lines and extract biosample name (BiosampleTermName)
   header <- grep(readLines(file, n = 1000), pattern = "^#", value = TRUE)
-  cell_type <- grep(header, pattern = "BiosampleString", value = 1)
-  cell_type <- sub(".*BiosampleString:[ ]*", "", cell_type)
+  biosample <- grep(header, pattern = "BiosampleTermName", value = 1)
+  biosample <- sub(".*BiosampleTermName:[ ]*", "", biosample)
   
-  # load predictions table and add cell type
+  # load predictions table and skip header lines (cautious approach, fread() should skip '#' lines)
   pred <- fread(file, skip = length(header), showProgress = showProgress)
-  pred$CellType <- cell_type
+  
+  # add BiosampleTermName column if missing
+  if (!"BiosampleTermName" %in% colnames(pred)) {
+    pred$BiosampleTermName <- biosample
+  }
   
   # select relevant columns for benchmarking pipeline
   base_cols <- c("ElementChr", "ElementStart", "ElementEnd", "ElementName", "ElementClass",
-                 "ElementStrand", "GeneSymbol", "GeneEnsemblID", "GeneTSS", "CellType")
+                 "GeneSymbol", "GeneEnsemblID", "GeneTSS", "BiosampleTermName")
   score_cols <- setdiff(colnames(pred), base_cols)
-  select_cols <- c(base_cols[c(1:4, 7, 10)], score_cols)
+  select_cols <- c(base_cols[c(1:4, 6, 9)], score_cols)
   pred <- pred[, ..select_cols]
   
   # rename column to CRISPR benchmark internal columns
-  colnames(pred)[1:5] <- c("chr", "start", "end", "name", "TargetGene")
+  colnames(pred)[1:6] <- c("chr", "start", "end", "name", "TargetGene", "CellType")
   
   return(pred)
   
@@ -291,10 +301,36 @@ check_colors <- function(pred_config) {
   
 }
 
+# check if file format argument is valid
+process_format_arg <- function(format, pred_files, possible_formats) {
+  
+  # check that all format values are valid
+  invalid_formats <- setdiff(format, possible_formats)
+  if (length(invalid_formats) > 0) {
+    stop("Invalid prediction file format(s): ", paste(invalid_formats, collapse = ", "),
+         call. = FALSE)
+  }
+  
+  # if format is a list of formats per file, check that number is correct, else create vector with
+  # with the same format for each file
+  if (length(format) == 1) {
+    format <- rep_len(format, length(pred_files))
+  } else if (length(format) != length(pred_files)) {
+    stop("'format' needs to be either one value or a vector of equal length as 'pred_files'",
+         call. = FALSE)
+  }
+  
+  return(format)
+  
+}
+
 # load all prediction files for one predictor provided via pred_id
-load_pred_files_predictor <- function(pred_id, pred_files, load_function, show_progress) {
+load_pred_files_predictor <- function(pred_id, load_function, pred_files, show_progress) {
   
   message("\tLoading predictions for: ", pred_id)
+  
+  # get load function specified by load_function string
+  load_function <- get(load_function)
   
   # load all files for the given predictor
   files <- structure(pred_files[[pred_id]], names = pred_files[[pred_id]])
