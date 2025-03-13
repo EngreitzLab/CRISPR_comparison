@@ -65,7 +65,7 @@ rule mergePredictionsWithExperiment:
   log: "results/{comparison}/logs/mergePredictionsWithExperiment.log"
   conda: "../envs/r_crispr_comparison.yml"
   resources:
-    mem_mb = 32000
+    mem_mb = determine_mem_mb
   script:
    "../../workflow/scripts/mergePredictionsWithExperiment.R"
    
@@ -80,7 +80,7 @@ rule annotateEnhFeatures:
     "results/{comparison}/expt_pred_merged_annot.txt.gz"
   conda: "../envs/r_crispr_comparison.yml"
   resources:
-    mem_mb = 32000
+    mem_mb = determine_mem_mb
   script:
     "../../workflow/scripts/annotateMergedData.R"
    
@@ -99,7 +99,7 @@ rule comparePredictionsToExperiment:
      include_col = lambda wildcards: get_optional_parameter(wildcards, "include_col", None)
   conda: "../envs/r_crispr_comparison.yml"
   resources:
-    mem_mb = 32000,
+    mem_mb = determine_mem_mb,
     runtime = "6h"
   script:
     "../../workflow/scripts/comparePredictionsToExperiment.Rmd"

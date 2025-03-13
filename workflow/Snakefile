@@ -3,7 +3,9 @@
 configfile: "config/config.yml"
 
 # rules for CRISPR comparisons
+include: "rules/utils.smk"
 include: "rules/crispr_comparison.smk"
+
 
 # perform all comparisons listed in config.yml
 rule all:
