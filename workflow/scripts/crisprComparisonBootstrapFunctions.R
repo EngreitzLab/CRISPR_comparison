@@ -374,6 +374,9 @@ calculate_auc <- function(x_vals, y_vals) {
   good.idx <- which(!is.na(x_vals) & !is.na(y_vals))
   if (length(good.idx) > 0) {
     auc <- trapz(x_vals[good.idx], y_vals[good.idx])
+    # Add the area of the rectangle formed by the left end 
+    # of the curve and the origin.
+    auc <- auc + x_vals[good.idx[1]] * y_vals[good.idx[1]]
   } else {
     auc <- NA_real_
   }
