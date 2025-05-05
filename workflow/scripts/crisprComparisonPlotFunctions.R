@@ -61,7 +61,7 @@ perfToTable <- function(perf_list, measure_name, x.measure_name) {
   
 }
 
-# make a eceiver operating characteristic (ROC) curve
+# make a receiver operating characteristic (ROC) curve
 plotROC <- function(merged, pos_col, pred_config, colors, thresholds = NULL,
                     plot_name = "ROC curve full experimental data", line_width = 1, 
                     point_size = 3, text_size = 15) {
@@ -86,7 +86,7 @@ plotROC <- function(merged, pos_col, pred_config, colors, thresholds = NULL,
 
   # create PRC plot (caution, this assumes that there at least 1 quant and 1 bool predictor!)
   ggplot(roc_quant, aes(x = FPR, y = TPR, color = pred_name_long)) +
-    geom_line(size = line_width) +
+    geom_line(linewidth = line_width) +
     geom_point(data = roc_bool, size = point_size) +
     labs(title = plot_name, x  = "False postitive rate", y = "True postitive rate",
          color = "Predictor") + 
@@ -211,7 +211,7 @@ count_pairs_subset <- function(merged, subset_col, pos_col, all = TRUE) {
 
 # process merged data for benchmarking analyses
 processMergedData <- function(merged, pred_config, filter_valid_connections = TRUE,
-                              include_missing_predictions = TRUE, distToTSS_as_kb = TRUE) {
+                              include_missing_predictions = TRUE) {
   
   # only retain predictors that are specified to be included in plots
   plot_preds <- pred_config[pred_config$include == TRUE, ][["pred_uid"]]
@@ -230,15 +230,6 @@ processMergedData <- function(merged, pred_config, filter_valid_connections = TR
   # filter out CRE - gene pairs with missing predictions if specified
   if (include_missing_predictions == FALSE) {
     merged <- merged[merged$Prediction == 1, ]
-  }
-  
-  # convert distance to TSS baseline predictor to kb if specified
-  if (distToTSS_as_kb == TRUE) {
-    merged <- merged %>% 
-      mutate(pred_value = if_else(pred_uid == "baseline.distToTSS", true = pred_value / 1000,
-                                  false = pred_value)) %>% 
-      mutate(pred_name_long = if_else(pred_uid == "baseline.distToTSS",
-                                      true = "Distance to TSS (kb)", false = pred_name_long))
   }
   
   return(merged)
@@ -300,40 +291,21 @@ calcPRCurves <- function(df, pred_config, pos_col) {
 }
 
 # create bootstrapped performance summary table for all predictors in a PR table
-makePRSummaryTableBS <- function(merged, pred_config, pos_col, min_sensitivity = 0.7, R = 1000,
-                                 conf = 0.95, ncpus = 1) {
+makePRSummaryTableBS <- function(merged, pred_config, pos_col, threshold_col = "alpha",
+                                 min_sensitivity = 0.7, R = 1000, conf = 0.95, ncpus = 1) {
   
   # convert merged to wide format for bootstrapping
   merged_bs <- convertMergedForBootstrap(merged, pred_config = pred_config, pos_col = pos_col)
   
-  # extract defined thresholds
-  thresholds <- deframe(select(pred_config, pred_uid, alpha))
-  thresholds <- thresholds[!is.na(thresholds) & names(thresholds) %in% colnames(merged_bs)]
+  # extract defined thresholds for provided predictors
+  preds <- setdiff(colnames(merged_bs), c("name", "Regulated", "dataset"))
+  thresholds <- getThresholdValues(pred_config, predictors = preds, threshold_col = threshold_col)
   
   # bootstrap overall performance (AUPRC) and reformat for performance summary table
+  message("Bootstrapping AUPRC:")
   perf <- bootstrapPerformanceIntervals(merged_bs, metric = "auprc", R = R, conf = conf,
                                         ci_type = "perc", ncpus = ncpus)
   perf <- select(perf, pred_uid = id, AUPRC = full, AUPRC_lowerCi = lower, AUPRC_upperCi = upper)
-  
-  # bootstrap precision at defined thresholds (if there are any)
-  if (length(thresholds) > 0) {
-    
-    # get data on predictors with thresholds
-    merged_bs_thresh <- select(merged_bs, name, Regulated, any_of(names(thresholds)))
-    
-    # run precision bootstraps using defined thresholds 
-    prec_thresh <- bootstrapPerformanceIntervals(merged_bs_thresh, metric = "precision",
-                                                 thresholds = thresholds, R = R, conf = conf,
-                                                 ci_type = "perc", ncpus = ncpus)
-    # add to performance table
-    perf <- prec_thresh %>% 
-      select(pred_uid = id, PrecThresh = full, PrecThresh_lowerCi = lower,
-             PrecThresh_upperCi = upper) %>% 
-      left_join(enframe(thresholds, name = "pred_uid", value = "threshold"),
-                by = "pred_uid") %>% 
-      left_join(perf, ., by = "pred_uid")
-    
-  }
   
   # get performance at minimum sensitivity
   pr <- calcPRCurves(merged, pred_config = pred_config, pos_col = pos_col)
@@ -346,20 +318,74 @@ makePRSummaryTableBS <- function(merged, pred_config, pos_col, min_sensitivity =
   # extract threshold at min sensitivity
   thresholds_min_sens <- deframe(select(perf_min_sens, pred_uid, alpha_at_min_sensitivity))
   
-  # bootstrap precison at minimum sensitivity
+  # bootstrap precision at minimum sensitivity
+  message("Bootstrapping precision at minimum sensitivity:")
   prec_min_sens <- bootstrapPerformanceIntervals(merged_bs, metric = "precision",
                                                  thresholds = thresholds_min_sens, R = R,
                                                  conf = conf, ci_type = "perc", ncpus = ncpus)
   
-  # add to performance table
-  perf <- prec_min_sens %>% 
+  # select relevant columns and reformat names for output
+  prec_min_sens <- prec_min_sens %>% 
     select(pred_uid = id, PrecMinSens = full, PrecMinSens_lowerCi = lower,
-           PrecMinSens_upperCi = upper) %>% 
-    left_join(enframe(thresholds_min_sens, name = "pred_uid", value = "thresholdMinSens"),
-              by = "pred_uid") %>% 
-    left_join(perf, ., by = "pred_uid")
+           PrecMinSens_upperCi = upper)
   
-  # sort accoring to overall performance for output
+  # bootstrap recall at minimum sensitivity (to get confidence intervals on min sensitivity)
+  message("Bootstrapping recall at minimum sensitivity:")
+  recall_min_sens <- bootstrapPerformanceIntervals(merged_bs, metric = "recall",
+                                                  thresholds = thresholds_min_sens, R = R,
+                                                  conf = conf, ci_type = "perc", ncpus = ncpus)
+  
+  # select relevant columns and reformat names for output
+  recall_min_sens <- recall_min_sens %>% 
+    select(pred_uid = id, RecallMinSens = full, RecallMinSens_lowerCi = lower,
+           RecallMinSens_upperCi = upper)
+  
+  # add to performance table
+  perf <- perf %>%
+    mutate(MinSensitivity = min_sensitivity) %>% 
+    left_join(prec_min_sens, by = "pred_uid") %>% 
+    left_join(recall_min_sens, by = "pred_uid") %>% 
+    left_join(enframe(thresholds_min_sens, name = "pred_uid", value = "ThresholdMinSens"),
+              by = "pred_uid") 
+  
+  # bootstrap precision and recall at defined thresholds (if there are any)
+  if (length(thresholds) > 0) {
+    
+    # get data on predictors with thresholds
+    merged_bs_thresh <- select(merged_bs, name, Regulated, any_of(names(thresholds)))
+    
+    # run precision bootstraps using defined thresholds
+    message("Bootstrapping precision at threshold:")
+    prec_thresh <- bootstrapPerformanceIntervals(merged_bs_thresh, metric = "precision",
+                                                 thresholds = thresholds, R = R, conf = conf,
+                                                 ci_type = "perc", ncpus = ncpus)
+    
+    # select relevant columns and reformat names for output
+    prec_thresh <- prec_thresh %>%
+      select(pred_uid = id, PrecThresh = full, PrecThresh_lowerCi = lower,
+             PrecThresh_upperCi = upper)
+    
+    # run recall bootstraps using defined thresholds
+    message("Bootstrapping recall at threshold:")
+    recall_thresh <- bootstrapPerformanceIntervals(merged_bs_thresh, metric = "recall",
+                                                  thresholds = thresholds, R = R, conf = conf,
+                                                  ci_type = "perc", ncpus = ncpus)
+    
+    # select relevant columns and reformat names for output
+    recall_thresh <- recall_thresh %>%
+      select(pred_uid = id, RecallThresh = full, RecallThresh_lowerCi = lower,
+             RecallThresh_upperCi = upper)
+    
+    # combine and add to performance table
+    perf <- perf %>% 
+      left_join(enframe(thresholds, name = "pred_uid", value = "Threshold"),
+                by = "pred_uid") %>% 
+      left_join(prec_thresh, by = "pred_uid") %>% 
+      left_join(recall_thresh, by = "pred_uid")
+      
+  }
+  
+  # sort according to overall performance for output
   perf <- arrange(perf, desc(AUPRC))
     
   return(perf)
@@ -522,14 +548,19 @@ plotPredictorsVsExperiment <- function(merged, pos_col = "Regulated", pred_names
 }
 
 # plot distance distributions for experimental positives and negatives
-plotDistanceDistribution <- function(merged, dist = "baseline.distToTSS", pos_col = "Regulated",
-                                     text_size = 13) {
+plotDistanceDistribution <- function(merged, dist = "baseline.distToTSS", convert_dist_kb = TRUE,
+                                     pos_col = "Regulated", text_size = 13) {
   
   # get data for distance and add label for faceting
   dist_data <- merged %>% 
     filter(pred_uid == dist) %>% 
     mutate(label = if_else(get(pos_col) == TRUE, true = "Positives", false = "Negatives")) %>% 
     mutate(label = factor(label, levels = c("Positives", "Negatives")))
+  
+  # convert distance from bp to kb if specified
+  if (convert_dist_kb == TRUE) {
+    dist_data$pred_value <- dist_data$pred_value / 1000
+  }
   
   # plot distance distribution for all pairs in experimental data
   ggplot(dist_data, aes(x = pred_value, fill = label)) +
@@ -921,7 +952,7 @@ savePlotList <- function(plot_list, basename, path = ".", ...) {
   }
   
   # save list of plots to output files
-  invisible(mapply(FUN = ggsave, outfiles, plot_list, MoreArgs = list(...)))
+  invisible(mapply(FUN = ggsave, outfiles, plot_list, MoreArgs = list(limitsize = FALSE, ...)))
   
 }
 
@@ -1258,3 +1289,11 @@ calcPerfSummaryOnePred <- function(pr_df, pred_config, min_sensitivity) {
   
 }
 
+# convert distance to TSS baseline predictor from bp to kb (TO DO: REMOVE IF NOT USED)
+convert_dist_to_kb <- function(merged) {
+  merged %>% 
+    mutate(pred_value = if_else(pred_uid == "baseline.distToTSS", true = pred_value / 1000,
+                                false = pred_value)) %>% 
+    mutate(pred_name_long = if_else(pred_uid == "baseline.distToTSS",
+                                    true = "Distance to TSS (kb)", false = pred_name_long))
+}

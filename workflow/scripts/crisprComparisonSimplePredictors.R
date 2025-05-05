@@ -125,6 +125,7 @@ computeDistToGene <- function(expt, annot, name, fix_annot = c("none", "center",
   output <- data.table(
     expt,
     PredictionCellType = NA_character_,
+    pred_elements = with(expt, paste0(chrom, ":", chromStart, "-", chromEnd)),
     pred_uid = paste("baseline", name, sep = "."), 
     pred_id = "baseline",
     pred_col = name,
@@ -155,6 +156,7 @@ nearestFeaturePred <- function(expt, features, name) {
   output <- data.table(
     expt[, ..expt_cols],
     PredictionCellType = NA_character_,
+    pred_elements = with(expt, paste0(chrom, ":", chromStart, "-", chromEnd)),
     pred_uid = paste("baseline", name, sep = "."), 
     pred_id = "baseline",
     pred_col = name,
@@ -225,6 +227,7 @@ withinDistFeature <- function(expt, features, dist, name) {
   output <- data.table(
     expt[, ..expt_cols],
     PredictionCellType = NA_character_,
+    pred_elements = with(expt, paste0(chrom, ":", chromStart, "-", chromEnd)),
     pred_uid = paste("baseline", name, sep = "."),    
     pred_id = "baseline",
     pred_col = name,

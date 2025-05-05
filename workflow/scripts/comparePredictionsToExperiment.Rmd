@@ -3,16 +3,15 @@ title: "Comparing E-G predictions with CRISPR data"
 date: "`r format(Sys.time(), '%B %d, %Y')`"
 params:
   rmd: "comparePredictionsToExperiment.Rmd"
-output:
+output: 
   html_document:
-    number_sections: yes
-    toc: yes
+    toc: true
+    toc_float: true
+    code_folding: hide
 ---
 
 ```{r setupDocument, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
-# save.image("comp.rda")
-# stop()
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
 ```
 
 ```{r attachPackages}
@@ -40,8 +39,11 @@ pred_config <- importPredConfig(snakemake@input$pred_config,
 
 # process merged data for benchmarking analyses, including filtering for ValidConnection == TRUE
 merged <- processMergedData(merged, pred_config = pred_config, filter_valid_connections = TRUE,
-                            include_missing_predictions = snakemake@params$include_missing_predictions,
-                            distToTSS_as_kb = TRUE)
+                            include_missing_predictions = snakemake@params$include_missing_predictions)
+
+# only retain pred_config entries also in merged data (important when not using an include column)
+pred_config <- subset(pred_config, pred_uid %in% unique(merged$pred_uid))
+check_unique_identifier(pred_config, col = "pred_name_long")
 
 # extract colors for predictors in all plots
 if (all(is.na(pred_config$color))) {
@@ -176,7 +178,7 @@ cap <- paste("Precision-recall curves for all predictors in all matching experim
 
 ```{r perfSummary, fig.cap=cap}
 # pretty-print PR summary table for report
-perf_summary  %>% 
+perf_summary_print <- perf_summary  %>% 
   select(-pred_uid) %>%
   rename(predictor = pred_name_long) %>% 
   mutate(across(where(is.double), round, digits = 3)) %>% 
@@ -191,8 +193,16 @@ perf_summary  %>%
       buttons = c('copy', 'csv', 'excel', 'pdf', 'print')
     ),
     autoHideNavigation = TRUE
-    ) %>%
-  formatStyle(c(2, 5, 9), `border-right` = "solid 1px")
+    )
+
+# add vertical lines depending if performance at provided thresholds has been computed and print
+if (ncol(perf_summary) == 14) {
+  perf_summary_print %>% 
+    formatStyle(c(2, 5, 6, 9, 12), `border-right` = "solid 1px")
+} else {
+  perf_summary_print %>%
+    formatStyle(c(2, 5, 6, 9, 12, 13, 14, 17), `border-right` = "solid 1px")
+}
 
 # figure caption
 cap <- paste("Precision-recall performance summary for predictors. Table shows Area-under-the-PRC",
@@ -312,6 +322,7 @@ if (is.null(snakemake@params$dist_bins_kb)) {
 # bin pairs by distance
 dist_bins <- merged %>% 
   filter(pred_uid == "baseline.distToTSS") %>% 
+  mutate(pred_value = pred_value / 1000) %>% 
   mutate(`distToTSS (bins)` = cut(pred_value, breaks = dist_breaks, right = FALSE)) %>% 
   select(name, `distToTSS (bins)`)
 
@@ -737,8 +748,8 @@ Different features of the experimental data are investigated.
 ## Distance to TSS distribution {.tabset .tabset-pills}
 ```{r distToTSSDistr}
 # create distance to TSS distributions for all cell types
-dist_distr <- applyCellTypes(merged, .fun = plotDistanceDistribution,
-                             dist = "baseline.distToTSS", pos_col = pos_col, text_size = 13)
+dist_distr <- applyCellTypes(merged, .fun = plotDistanceDistribution, dist = "baseline.distToTSS",
+                             convert_dist_kb = TRUE, pos_col = pos_col, text_size = 13)
 
 # save plots to pdfs
 savePlotList(dist_distr, basename = "distToTSS_distribution.pdf", path = plotdir, height = 5,

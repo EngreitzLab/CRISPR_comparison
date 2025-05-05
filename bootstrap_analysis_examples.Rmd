@@ -1,0 +1,174 @@
+---
+title: "Bootstrapped performance comparisons"
+author: "Andreas R. Gschwind"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: show
+---
+
+```{r setupDocument, include=FALSE}
+# set output html chunk options
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+## Compare performance between predictors and datasets
+The CRISPR benchmarking pipeline uses a bootstrapping approach to compute confidence intervals for
+performance metrics in the standard analyses. These methods can also be used to perform customized
+analyses to compare the performance of predictive models:
+
+* Compute confidence intervals for AUPRC or precision at thresholds
+* Compute statistical significance of pairwise differences in performance:
+  * Between different models on the same benchmarking dataset
+  * Between the same models on two difference benchmarking datasets
+  
+The following examples show how these analyses can be performed on hypothetical data and models.
+
+***
+
+## Preparing data for bootstrapping
+Running the benchmarking pipeline for a given comparison will produce a file called
+`expt_pred_merged_annot.txt.gz`, which contains the scores of the benchmarked models merged with the
+CRISPR ground truth dataset used in this comparison. Together with the `pred_config` file, this is
+the main input to any benchmarking analyses, including custom performance comparisons. The following
+code shows how to load the data and prepare it for bootstrapping analyses.
+```{r prepareData}
+# required functions
+source("workflow/scripts/crisprComparisonLoadInputData.R")
+source("workflow/scripts/crisprComparisonPlotFunctions.R")
+source("workflow/scripts/crisprComparisonBootstrapFunctions.R")
+
+# load merged data
+merged_file <- "results/<comparison>/expt_pred_merged_annot.txt.gz"
+merged <- fread(merged_file, colClasses = c("ValidConnection" = "character"))
+
+# load pred_config file
+pred_config_file <- "path/to/pred_config.tsv"
+pred_config <- importPredConfig(pred_config_file)
+
+# process merged data for benchmarking analyses, including filtering for ValidConnection == TRUE
+merged_training <- processMergedData(merged, pred_config = pred_config,
+                                     filter_valid_connections = TRUE)
+
+# reformat merged data for bootstrapping
+merged_bs <- convertMergedForBootstrap(merged, pred_config = pred_config)
+```
+
+***
+
+## Compute confidence intervals
+Bootstrapping can be used to compute empirical confidence intervals for AUPRC or precision at a
+given threshold for predictors in the merged data. The `predictors` argument can be used to compute
+confidence intervals only on a subset of models.
+```{r computeAuprcCi}
+# bootstrap AUPRC and compute confidence intervals for all predictors in the merged data
+ci_auprc <- bootstrapPerformanceIntervals(merged_bs, metric = "auprc", R = 10000, conf = 0.95,
+                                          ci_type = "perc", ncpus = 2)
+
+# calculate AUPRC confidence intervals for a subset of predictors (use pred_uid to subset)
+preds <- c("ABCdnase.ABC.Score", "ENCODE_rE2G.Score", "baseline.distToTSS")
+ci_auprc <- bootstrapPerformanceIntervals(merged_bs, metric = "auprc", predictors = preds,
+                                          R = 10000, conf = 0.95, ci_type = "perc", ncpus = 2)
+
+```
+The resulting tables contain bootstrapped performance metrics for the different predictors. Most
+importantly, the `full` column contains the non-bootstrapped performance, while `lower` and `upper`
+contain the lower and upper boundary of the confidence interval. `min` and `max` contain the minimum
+and maximum values obtained while bootstrapping.
+
+When computing confidence intervals for precision, the user needs to provide predictor score
+thresholds. If thresholds are provided in the pred_config file, the `getThresholdValues()` helper
+function can be used to extract them. If providing thresholds from other sources, note that
+thresholds for inverse predictors have to be inverted, i.e. multiplied by -1.
+```{r computePrecCi}
+# extract specified predictor thresholds in pred_config to compute confidence intervals
+thresholds <- getThresholdValues(pred_config, predictors = preds, threshold_col = "alpha")
+
+# bootstrap precision at 70% recall for a subset of predictors and compute CIs
+ci_precision <- bootstrapPerformanceIntervals(merged_bs, metric = "precision",
+                                              predictors = preds, thresholds = thresholds,
+                                              R = 10000, conf = 0.95, ci_type = "perc", ncpus = 2)
+```
+
+***
+
+## Compute significance of performance differences
+The bootstrapping approach can also be used to compute statistical significance of performance
+differences between different predictors, or the same predictors but between two different
+CRISPR benchmarking datasets.
+
+### Differences between predictors
+Like with confidence intervals, we can calculate performance differences between predictors for
+AUPRC or precision at a given threshold. This approach bootstraps the delta in AUPRC or precision
+between two predictors, and uses the output to calculate a p-value for delta being different from
+0.
+
+By default, this function computes signficance for all possible predictor pairs in the merged data.
+```{r computeAuprcDelta}
+# compute significant differences in AUPRC comparisons between all predictors in input data
+delta_auprc <- bootstrapDeltaPerformance(merged_bs, metric = "auprc", R = 10000, conf = 0.95,
+                                         ci_type = "perc", ncpus = 2)
+```
+The output table has the same format as for confidence intervals, however each row is now one
+pairwise comparison of two predictors and the bootstrapped statistic is the delta in the chosen
+performance metric. This table also contains an additional p-value column.
+
+Computing all pairwise comparisons can be resource intensive, so it's possible to specify specific
+comparison to compute. In the example below we compute the difference in precision at the given
+thresholds for two models against distance to TSS.
+```{r computePrecDelta}
+# compute significant differences in precision at threshold for specific pairwise comparisons
+comps <- list(c("ABCdnase.ABC.Score", "baseline.distToTSS"),
+              c("ENCODE_rE2G.Score", "baseline.distToTSS"))
+delta_precision <- bootstrapDeltaPerformance(merged_bs, metric = "precision", comparisons = comps,
+                                             thresholds = thresholds, R = 10000, conf = 0.95,
+                                             ci_type = "perc", ncpus = 2)
+```
+
+To visualize the results of these comparisons, we can plot the bootstrapped confidence intervals to
+easily check if they overlap 0.
+```{r plotPrecDelta, fig.height=3, fig.width=7}
+plotBootstrappedIntervals(delta_precision)
+```
+
+### Differences between datasets
+The bootstrapping approach can be adapted to compute differences in performance of a predictor
+between two CRISPR benchmarking datasets. Here for each bootstrap iteration a sample is drawn from
+each of the two datasets and the delta in performance is calculated. Multiple bootstrap samples are
+used to calculate confidence intervals and to test for significant difference from 0 for delta.
+
+First we need to load and reformat the merged data for the second benchmarking dataset.
+```{r prepareSecondDataset}
+# load merged data for the second benchmarking dataset
+merged2_file <- "results/<comparison>/expt_pred_merged_annot.txt.gz"
+merged2 <- fread(merged2_file, colClasses = c("ValidConnection" = "character"))
+
+# process merged data for benchmarking analyses, including filtering for ValidConnection == TRUE
+merged2 <- processMergedData(merged2, pred_config = pred_config, filter_valid_connections = TRUE)
+
+# reformat merged data for bootstrapping
+merged2_bs <- convertMergedForBootstrap(merged2, pred_config = pred_config)
+```
+
+We can now compute difference in AUPRC for all predictors between the two datasets.
+```{r computeAuprcDiff2Datasets}
+# compute bootstrapped differences in AUPRC for all models between the two datasets
+delta_auprc <- bootstrapDeltaPerformanceDatasets(data1 = merged_bs, data2 = merged2_bs, 
+                                                 metric = "auprc", R = 10000, conf = 0.95,
+                                                 ci_type = "perc", ncpus = 2)
+```
+
+Like before, we can also compute differences in precision at chosen thresholds, subset the
+comparison to selected predictors and plot the results
+```{r computePrecDiff2Datasets, fig.height=3.5, fig.width=6}
+# compute bootstrapped performance differences for all models between training and held-out data
+delta_prec <- bootstrapDeltaPerformanceDatasets(data1 = merged_bs, data2 = merged2_bs, 
+                                                metric = "precision", predictors = preds,
+                                                thresholds = thresholds, R = 10000, conf = 0.95,
+                                                ci_type = "perc", ncpus = 2)
+
+# plot bootstrapped delta confidence intervals
+plotBootstrappedIntervals(delta_prec)
+```
