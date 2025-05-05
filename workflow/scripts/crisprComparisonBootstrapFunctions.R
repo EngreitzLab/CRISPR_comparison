@@ -72,8 +72,8 @@ getThresholdValues <- function(pred_config, predictors = NULL, threshold_col = "
 
 #' Bootstrapped performance confidence intervals
 #' 
-#' Run bootstraps to compute confidence intervals for AUPRC or precision at a given threshold
-#' performance metrics.
+#' Run bootstraps to compute confidence intervals for AUPRC, or precision or recall at a given
+#' threshold performance metrics.
 #' 
 #' @param data Data frame containing merged data in wide format. Needs to contain columns named
 #'   'name' with a unique identifier for each E-G pair and 'Regulated' identifying positives and
@@ -81,33 +81,32 @@ getThresholdValues <- function(pred_config, predictors = NULL, threshold_col = "
 #'   that higher scores are assumed to rank higher. Inverse predictors (e.g. distance to TSS) need
 #'   to be multiplied by -1. To convert merged data from CRISPR benchmarking to the required format,
 #'   use the convertMergedForBootstrap() function.
-#' @param metric Performance metric to bootstrap. Can either be "auprc" or "precision" for precision
+#' @param metric Performance metric to bootstrap. Can either be 'auprc' for area under the
+#'   precision-recall curve, or 'precision' or 'recall' for precision or recall at threshold
 #'   at provided thresholds.
 #' @param predictors Predictors (columns in data) for which performance should be bootstrapped. A
 #'   simple vector or list with names of predictors for which performance should be bootstrapped.
 #' @param thresholds Named vector with thresholds for all predictors (e.g. at 70% recall).
-#'   Only required if metric is set to 'precision'.
+#'   Only required if metric is set to 'precision' or 'recall'.
 #' @param R Number of bootstrap replicates (default: 10000).
 #' @param conf Desired confidence levels for confidence intervals (default: 0.95).
 #' @param ci_type Confidence interval type. See ?boot.ci for more information.
 #' @param ncpus Specifies how many CPUs should be used for bootstrapping and computing confidence
 #'   intervals. If 1 not parallelization is used, if > 1 parallel computing using the specified
 #'   number of CPUs will be used. Parts of parallel computing rely in BiocParallel. 
-bootstrapPerformanceIntervals <- function(data, metric = c("auprc", "precision"), predictors = NULL,
-                                          thresholds = NULL, R = 10000, conf = 0.95,
-                                          ci_type = c("perc", "norm", "basic", "bca"), ncpus = 1) {
+bootstrapPerformanceIntervals <- function(data, metric = c("auprc", "precision", "recall"),
+                                          predictors = NULL, thresholds = NULL, R = 10000,
+                                          conf = 0.95, ncpus = 1,
+                                          ci_type = c("perc", "norm", "basic", "bca")) {
   
   # parse input arguments
   metric <- match.arg(metric)
   ci_type <- match.arg(ci_type)
   
   # check that thresholds are provided if precision is bootstrapped
-  if (metric == "precision" & is.null(thresholds)) {
-    stop("Thresholds required if bootstrapping precision", call. = FALSE)
+  if (metric %in% c("precision", "recall") & is.null(thresholds)) {
+    stop("Thresholds required if bootstrapping precision or recall", call. = FALSE)
   }
-  
-  # get function to compute specified metric
-  metric_fun <- switch(metric, "auprc" = calculate_auprc, "precision" = calculate_precision)
   
   # subset data to specified predictors if passed via arguments
   if (!is.null(predictors)) {
@@ -119,8 +118,8 @@ bootstrapPerformanceIntervals <- function(data, metric = c("auprc", "precision")
   
   # bootstrap performance
   message("Running bootstraps...")
-  bs_perf <- boot(data, statistic = metric_fun, R = R, parallel = parallel, ncpus = ncpus,
-                  thresholds = thresholds)
+  bs_perf <- boot(data, statistic = calculate_performance, metric = metric, R = R,
+                  parallel = parallel, ncpus = ncpus, thresholds = thresholds)
   
   # set up parallel backend for computing confidence intervals if specified
   if (ncpus > 1) {
@@ -144,9 +143,9 @@ bootstrapPerformanceIntervals <- function(data, metric = c("auprc", "precision")
 
 #' Bootstrapped pairwise performance comparisons
 #' 
-#' Run bootstraps to compute confidence intervals for delta AUPRC or delta precision (at threshold)
-#' for specified predictor pairs. delta is simply defined as performance predictor 1 - performance
-#' predictor 2.
+#' Run bootstraps to compute confidence intervals for delta AUPRC, or delta precision or recall at
+#' threshold for specified predictor pairs. delta is simply defined as performance predictor 1 -
+#' performance predictor 2.
 #' 
 #' @param data Data frame containing merged data in wide format. Needs to contain columns named
 #'   'name' with a unique identifier for each E-G pair and 'Regulated' identifying positives and
@@ -154,21 +153,22 @@ bootstrapPerformanceIntervals <- function(data, metric = c("auprc", "precision")
 #'   that higher scores are assumed to rank higher. Inverse predictors (e.g. distance to TSS) need
 #'   to be multiplied by -1. To convert merged data from CRISPR benchmarking to the required format,
 #'   use the convertMergedForBootstrap() function.
-#' @param metric Performance metric to bootstrap. Can either be "auprc" or "precision" for precision
+#' @param metric Performance metric to bootstrap. Can either be 'auprc' for area under the
+#'   precision-recall curve, or 'precision' or 'recall' for precision or recall at threshold
 #'   at provided thresholds.
 #' @param comparisons List containing pairwise comparisons of predictors that should be computed
 #'   (one pair per element). If 'NULL', all pairwise comparisons between all predictors will be
 #'   tested.
 #' @param thresholds Named vector with thresholds for all predictors (e.g. at 70% recall).
-#'   Only required if metric is set to 'precision'.
+#'   Only required if metric is set to 'precision' or 'recall'.
 #' @param R Number of bootstrap replicates (default: 10000).
 #' @param conf Desired confidence levels for confidence intervals (default: 0.95).
 #' @param ci_type Confidence interval type. See ?boot.ci for more information.
 #' @param ncpus Specifies how many CPUs should be used for bootstrapping and computing confidence
 #'   intervals. If 1 not parallelization is used, if > 1 parallel computing using the specified
 #'   number of CPUs will be used. Parts of parallel computing rely in BiocParallel. 
-bootstrapDeltaPerformance <- function(data, metric = c("auprc", "precision"), comparisons = NULL,
-                                      thresholds = NULL, R = 10000, conf = 0.95,
+bootstrapDeltaPerformance <- function(data, metric = c("auprc", "precision", "recall"),
+                                      comparisons = NULL, thresholds = NULL, R = 10000, conf = 0.95,
                                       ci_type = c("perc", "norm", "basic", "bca"), ncpus = 1) {
   
   # parse input arguments
@@ -179,9 +179,6 @@ bootstrapDeltaPerformance <- function(data, metric = c("auprc", "precision"), co
   if (metric == "precision" & is.null(thresholds)) {
     stop("Thresholds required if bootstrapping precision", call. = FALSE)
   }
-  
-  # get function to compute specified metric
-  metric_fun <- switch(metric, "auprc" = calc_delta_auprc, "precision" = calc_delta_precision)
   
   # subset data to predictors in comparisons if specified, else create all pairwise comparisons
   if (!is.null(comparisons)) {
@@ -198,8 +195,9 @@ bootstrapDeltaPerformance <- function(data, metric = c("auprc", "precision"), co
   
   # bootstrap performance
   message("Running bootstraps...")
-  bs_delta <- boot(data, statistic = metric_fun, R = R, parallel = parallel, ncpus = ncpus,
-                   thresholds = thresholds, comparisons = comparisons)
+  bs_delta <- boot(data, statistic = calc_delta_performance, metric = metric, R = R,
+                   parallel = parallel, ncpus = ncpus, thresholds = thresholds,
+                   comparisons = comparisons)
   
   # set up parallel backend for computing confidence intervals if specified (useful for 'bca')
   if (ncpus > 1) {
@@ -227,8 +225,8 @@ bootstrapDeltaPerformance <- function(data, metric = c("auprc", "precision"), co
 
 #' Bootstrapped performance differences between datasets
 #' 
-#' Run bootstraps to compute confidence intervals for delta AUPRC or delta precision (at threshold)
-#' between two benchmarking datasets for specified predictors. delta is simply defined as
+#' Run bootstraps to compute confidence intervals for delta AUPRC, or delta precision or recall at
+#' threshold between two benchmarking datasets for specified predictors. delta is simply defined as
 #' performance predictor 1 - performance predictor 2.
 #' 
 #' @param data1,data2 Data frames containing merged data for the two benchmarking datasets in wide
@@ -237,20 +235,22 @@ bootstrapDeltaPerformance <- function(data, metric = c("auprc", "precision"), co
 #'   considered to be scores for predictors. Note that higher scores are assumed to rank higher.
 #'   Inverse predictors (e.g. distance to TSS) need to be multiplied by -1. To convert merged data
 #'   from CRISPR benchmarking to the required format, use the convertMergedForBootstrap() function.
-#' @param metric Performance metric to bootstrap. Can either be "auprc" or "precision" for precision
+#' @param metric Performance metric to bootstrap. Can either be 'auprc' for area under the
+#'   precision-recall curve, or 'precision' or 'recall' for precision or recall at threshold
 #'   at provided thresholds.
 #' @param predictors Predictors (columns in data) for which performance differences should be
 #'  computed. A simple vector or list with names of predictors to include. If not specified, the
 #'  intersect between predictors in data1 and data2 will be used.
 #' @param thresholds Named vector with thresholds for all predictors (e.g. at 70% recall).
-#'   Only required if metric is set to 'precision'.
+#'   Only required if metric is set to 'precision' or 'recall'.
 #' @param R Number of bootstrap replicates (default: 10000).
 #' @param conf Desired confidence levels for confidence intervals (default: 0.95).
 #' @param ci_type Confidence interval type. See ?boot.ci for more information.
 #' @param ncpus Specifies how many CPUs should be used for bootstrapping and computing confidence
 #'   intervals. If 1 not parallelization is used, if > 1 parallel computing using the specified
 #'   number of CPUs will be used. Parts of parallel computing rely in BiocParallel.
-bootstrapDeltaPerformanceDatasets <- function(data1, data2, metric = c("auprc", "precision"),
+bootstrapDeltaPerformanceDatasets <- function(data1, data2,
+                                              metric = c("auprc", "precision", "recall"),
                                               predictors = NULL, thresholds = NULL, R = 10000,
                                               conf = 0.95, ncpus = 1,
                                               ci_type = c("perc", "norm", "basic", "bca")) {
@@ -263,10 +263,6 @@ bootstrapDeltaPerformanceDatasets <- function(data1, data2, metric = c("auprc", 
   if (metric == "precision" & is.null(thresholds)) {
     stop("Thresholds required if bootstrapping precision", call. = FALSE)
   }
-  
-  # get function to compute specified metric
-  metric_fun <- switch(metric, "auprc" = calc_delta_auprc_datasets,
-                       "precision" = calc_delta_precision_datasets)
   
   # subset data to specified predictors if specified, else retain predictors shared across datasets
   if (is.null(predictors)) {
@@ -283,8 +279,9 @@ bootstrapDeltaPerformanceDatasets <- function(data1, data2, metric = c("auprc", 
   
   # bootstrap performance
   message("Running bootstraps...")
-  bs_delta <- boot(data, statistic = metric_fun, R = R, strata = data$dataset, parallel = parallel,
-                   ncpus = ncpus, thresholds = thresholds)
+  bs_delta <- boot(data, statistic = calc_delta_performance_datasets, metric = metric, R = R,
+                   strata = data$dataset, parallel = parallel, ncpus = ncpus,
+                   thresholds = thresholds)
   
   # set up parallel backend for computing confidence intervals if specified (useful for 'bca')
   if (ncpus > 1) {
@@ -355,8 +352,8 @@ plotBootstrappedIntervals <- function(results, title = NULL) {
 
 ## FUNCTIONS TO COMPUTE PERFORMANCE AND DELTA PERFORMANCE ==========================================
 
-# function to calculate AUPRC for all predictors (thresholds is ignored)
-calculate_auprc <- function(data, indices, thresholds) {
+# calculate performance AUPRC, or precision or recall at threshold
+calculate_performance <- function(data, indices, metric, thresholds) {
   
   # select bootstrap sample
   data <- data[indices, ]
@@ -364,105 +361,63 @@ calculate_auprc <- function(data, indices, thresholds) {
   # get all predictors in input data
   preds <- setdiff(colnames(data), c("name", "Regulated", "dataset"))
   
-  # calculate performance for all predictors
-  auprc <- vapply(preds, FUN = calculate_auprc_one_pred, data = data, FUN.VALUE = numeric(1))
+  # if thresholds are provided, get thresholds for these predictors else create NA thresholds
+  if (!is.null(thresholds)) {
+    thresholds <- thresholds[preds]
+  } else {
+    thresholds <- rep_len(NA_real_, length(preds))
+  }
   
-  return(auprc)
+  # calculate performance for all predictors
+  performance <- mapply(FUN = calculate_performance_one_pred, pred = preds, threshold = thresholds,
+                        MoreArgs = list(data = data, metric = metric), SIMPLIFY = TRUE)
+  
+  return(performance)
   
 }
 
-# function to calculate precision at threshold for all predictors
-calculate_precision <- function(data, indices, thresholds) {
+# function to calculate delta AUPRC, or precision or recall at threshold between pairwise
+# predictor combinations
+calc_delta_performance <- function(data, indices, metric, thresholds, comparisons) {
+  
+  # calculate bootstrapped performance
+  perf <- calculate_performance(data, indices = indices, metric = metric, thresholds = thresholds)
+  
+  # calculate delta performance for all specified comparisons
+  delta_perf <- vapply(comparisons, FUN = function(comp, perf) {
+    perf[[comp[[1]]]] - perf[[comp[[2]]]]
+  }, perf = perf, FUN.VALUE = numeric(1))
+  
+  return(delta_perf)
+  
+}
+
+# function to calculate delta AUPRC, or precision or recall at threshold between 2 datasets
+calc_delta_performance_datasets <- function(data, indices, metric, thresholds) {
   
   # select bootstrap sample
   data <- data[indices, ]
   
-  # get all predictors in input data
-  preds <- setdiff(colnames(data), c("name", "Regulated", "dataset"))
-  
-  # get thresholds for these predictors
-  thresholds <- thresholds[preds]
-  
-  # calculate performance for all predictors
-  precision <- mapply(FUN = calculate_precision_one_pred, pred = preds, threshold = thresholds,
-                      MoreArgs = list(data = data), SIMPLIFY = TRUE)
-  
-  return(precision)
-  
-}
-
-# function to calculate delta AUPRC between all predictor pairwise combinations
-calc_delta_auprc <- function(data, indices, thresholds, comparisons) {
-  
-  # calculate bootstrapped auprc
-  auprc <- calculate_auprc(data, indices = indices, thresholds = thresholds)
-  
-  # calculate delta auprc for all specified comparisons
-  delta_auprc <- vapply(comparisons, FUN = function(comp, perf) {
-    perf[[comp[[1]]]] - perf[[comp[[2]]]]
-  }, perf = auprc, FUN.VALUE = numeric(1))
-  
-  return(delta_auprc)
-  
-}
-
-# function to calculate delta precision between all predictor pairwise combinations
-calc_delta_precision <- function(data, indices, thresholds, comparisons) {
-  
-  # calculate bootstrapped precision  
-  precision <- calculate_precision(data, indices = indices, thresholds = thresholds)
-  
-  # calculate delta precision for all specified comparisons
-  delta_precision <- vapply(comparisons, FUN = function(comp, perf) {
-    perf[[comp[[1]]]] - perf[[comp[[2]]]]
-  }, perf = precision, FUN.VALUE = numeric(1))
-  
-  return(delta_precision)
-  
-}
-
-# function to calculate delta AUPRC for all predictor between 2 datasets
-calc_delta_auprc_datasets <- function(data, indices, thresholds) {
-  
-  # select bootstrap sample
-  data <- data[indices, ]
-  
-  # calculate bootstrapped auprc for both stratifications
+  # calculate bootstrapped performance for both stratifications
   data1 <- data[data$dataset == "1", ]
   data2 <- data[data$dataset == "2", ]
-  auprc1 <- calculate_auprc(data1, indices = seq_len(nrow(data1)), thresholds = thresholds)
-  auprc2 <- calculate_auprc(data2, indices = seq_len(nrow(data2)), thresholds = thresholds)
+  perf1 <- calculate_performance(data1, indices = seq_len(nrow(data1)), metric = metric,
+                                  thresholds = thresholds)
+  perf2 <- calculate_performance(data2, indices = seq_len(nrow(data2)), metric = metric,
+                                  thresholds = thresholds)
   
-  # calculate delta auprc for all predictors
-  delta_auprc <- auprc1 - auprc2
+  # calculate delta performance for all predictors
+  delta_perf <- perf1 - perf2
     
-  return(delta_auprc)
+  return(delta_perf)
   
 }
 
-# function to calculate delta precision for all predictor between 2 datasets
-calc_delta_precision_datasets <- function(data, indices, thresholds) {
-  
-  # select bootstrap sample
-  data <- data[indices, ]
-  
-  # calculate bootstrapped precision for both stratifications
-  data1 <- data[data$dataset == "1", ]
-  data2 <- data[data$dataset == "2", ]
-  precision1 <- calculate_precision(data1, indices = seq_len(nrow(data1)), thresholds = thresholds)
-  precision2 <- calculate_precision(data2, indices = seq_len(nrow(data2)), thresholds = thresholds)
-  
-  # calculate delta precision for all predictors
-  delta_precision <- precision1 - precision2
-  
-  return(delta_precision)
-  
-}
 
 ## HELPER FUNCTIONS ================================================================================
 
-# calculate AUPRC for a given predictors
-calculate_auprc_one_pred <- function(data, pred) {
+# calculate performance auprc, or precision or recall at threshold for one predictor
+calculate_performance_one_pred <- function(data, pred, threshold, metric) {
   
   # return NA if 'Regulated' column does not contain at least one positive and negative
   if (length(unique(data$Regulated)) != 2) {
@@ -480,6 +435,22 @@ calculate_auprc_one_pred <- function(data, pred) {
     precision = pr@y.values[[1]],
     recall = pr@x.values[[1]]
   )
+  
+  # calculate AUPRC, or precision or recall at threshold performance
+  if (metric %in% c("precision", "recall")) {
+    performance <- calculate_performance_at_threshold(pr, threshold = threshold, metric = metric)
+  } else if (metric == "auprc") {
+    performance <- calculate_auprc(pr)
+  } else {
+    stop("Invalid 'metric' argument", call. = FALSE)
+  }
+  
+  return(performance)
+  
+}
+
+# calculate area-under-the-precision-recall-curve (AUPRC)
+calculate_auprc <- function(pr) {
   
   # the head() calls here remove the last element of the vector. 
   # The point is that performance objects produced by ROCR always include a Recall = 100% point even
@@ -487,40 +458,15 @@ calculate_auprc_one_pred <- function(data, pred) {
   # (1,0) on the PR curve. This should not be included in the performance computation.
   pr <- head(pr, -1)
   
-  # compute AUPRC
-  auprc <- calculate_auc(x_vals = pr$recall, y_vals = pr$precision)
+  # compute auprc
+  auprc <- compute_auc(x_vals = pr$recall, y_vals = pr$precision)
   
   return(auprc)
   
 }
 
-# calculate precision at threshold for all predictors
-calculate_precision_one_pred <- function(data, pred, threshold) {
-  
-  # return NA if 'Regulated' column does not contain at least one positive and negative
-  if (length(unique(data$Regulated)) != 2) {
-    warning("Not both positives and negatives ('Regulated') in bootstrap sample. Returning 'NA'.",
-            call. = FALSE)
-    return(NA_real_)
-  }
-  
-  # compute precision-recall curve
-  pr <- performance(prediction(data[[pred]], data$Regulated), measure = "prec", x.measure = "rec")
-  
-  # convert to data.frame
-  pr <- data.frame(
-    alpha = pr@alpha.values[[1]],
-    precision = pr@y.values[[1]],
-    recall = pr@x.values[[1]]
-  )
-  
-  # calculate precision at threshold
-  perc_at_threshold <- calculate_precision_at_threshold(pr, threshold = threshold)
-  
-}
-
-# try to compute AUC
-calculate_auc <- function(x_vals, y_vals) {
+# try to compute area under the curve
+compute_auc <- function(x_vals, y_vals) {
   good.idx <- which(!is.na(x_vals) & !is.na(y_vals))
   if (length(good.idx) > 0) {
     auc <- trapz(x_vals[good.idx], y_vals[good.idx])
@@ -531,15 +477,15 @@ calculate_auc <- function(x_vals, y_vals) {
 }
 
 # calculate precision at a given threshold
-calculate_precision_at_threshold <- function(pr, threshold) {
+calculate_performance_at_threshold <- function(pr, threshold, metric) {
   
   # get index of highest alpha value that is larger or equal to alpha_cutoff
   idx <- sum(pr$alpha >= threshold)
   
   # get precision at this alpha value
-  prec_at_threshold <- pr$precision[[idx]]
+  perf_at_threshold <- pr[[metric]][[idx]]
   
-  return(prec_at_threshold)
+  return(perf_at_threshold)
   
 }
 
