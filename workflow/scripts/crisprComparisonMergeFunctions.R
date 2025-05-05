@@ -60,7 +60,7 @@ qcPredictions <- function(pred_list, pred_config, one_tss = TRUE)  {
   }
   
   # make sure that minimum required columns are present
-  base_cols <- c("chr", "start", "end", "TargetGene", "CellType")
+  base_cols <- c("chr", "start", "end", "name", "TargetGene", "CellType")
   invisible(lapply(names(pred_list), FUN = check_min_cols, pred_list = pred_list,
                    pred_config = pred_config, base_cols = base_cols))
   

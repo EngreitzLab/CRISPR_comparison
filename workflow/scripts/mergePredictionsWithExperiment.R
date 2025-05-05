@@ -40,9 +40,15 @@ tss_annot <- fread(snakemake@input$tss_universe, select = 1:6,
 gene_annot <- fread(snakemake@input$gene_universe, select = 1:6,
                     col.names = c("chr", "start", "end", "gene", "score", "strand"))
 
+# get file formats for all prediction files to load
+if (length(snakemake@params$pred_format) > 1) {
+  format <- unlist(config$pred_file_format)[names(config$pred)]
+} else {
+  format <- snakemake@params$pred_format
+}
+
 # load all prediction files
-pred_list <- loadPredictions(config$pred, format = snakemake@params$pred_format,
-                             show_progress = FALSE)
+pred_list <- loadPredictions(config$pred, format = format, show_progress = FALSE)
 
 # if specified, filter out any predictions where elements overlap annotated gene TSS
 if (snakemake@params$filter_tss == TRUE) {
