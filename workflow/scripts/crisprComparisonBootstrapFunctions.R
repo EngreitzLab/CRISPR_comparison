@@ -2,8 +2,7 @@
 ## significance for pairwise differences in performance between predictors
 
 library(boot)
-#library(boot.pval)
-library(ROCR)
+library(yardstick)
 library(caTools)
 library(data.table)
 library(dplyr)
@@ -15,15 +14,20 @@ library(BiocParallel)
 #' 
 #' @param merged Merged data from CRISPR benchmarking pipeline
 #' @param pred_config pred_config table used to run CRISPR benchmarking pipeline
+#' @param pos_col Name of column specifying positive CRISPR E-G pairs. Needs to be a logical with 
+#'   TRUE/FALSE, where TRUE are positives
+#' @param weight_col Optional name for column containing case weights for calculating weighted
+#'   performance
 #' @param rm_boolean (logical) Should boolean predictors be filtered out? (default: TRUE)
-convertMergedForBootstrap <- function(merged, pred_config, pos_col = "Regulated",
+convertMergedForBootstrap <- function(merged, pred_config, pos_col = "Regulated", weight_col = NULL,
                                       rm_boolean = TRUE) {
   
   # get inverse predictors
   inverse_preds <- pred_config[pred_config$inverse_predictor == TRUE, ][["pred_uid"]]
   
   # extract relevant columns from merged data
-  merged <- select(merged, name, Regulated = all_of(pos_col), pred_uid, pred_value)
+  merged <- merged %>% 
+    select(name, Regulated = all_of(pos_col), weight = all_of(weight_col), pred_uid, pred_value)
   
   # filter out boolean predictors
   if (rm_boolean == TRUE) {
@@ -37,8 +41,10 @@ convertMergedForBootstrap <- function(merged, pred_config, pos_col = "Regulated"
                                 true = pred_value * -1,
                                 false = pred_value))
   
-  # convert to wide format to create output
-  output <- pivot_wider(merged, names_from = pred_uid, values_from = pred_value)
+  # convert to wide format to create output and convert Regulated to factor
+  output <- merged %>% 
+    pivot_wider(names_from = pred_uid, values_from = pred_value) %>% 
+    mutate(Regulated = factor(Regulated))
   
   return(output)
   
@@ -88,6 +94,9 @@ getThresholdValues <- function(pred_config, predictors = NULL, threshold_col = "
 #'   simple vector or list with names of predictors for which performance should be bootstrapped.
 #' @param thresholds Named vector with thresholds for all predictors (e.g. at 70% recall).
 #'   Only required if metric is set to 'precision' or 'recall'.
+#' @param weighted (logical) Specifies whether weighted performance should be calculated. Requires
+#'   that 'data' contains a column called 'weight' containing a weight between 0 and 1 for each
+#'   CRISPR E-G pair.
 #' @param R Number of bootstrap replicates (default: 10000).
 #' @param conf Desired confidence levels for confidence intervals (default: 0.95).
 #' @param ci_type Confidence interval type. See ?boot.ci for more information.
@@ -95,8 +104,8 @@ getThresholdValues <- function(pred_config, predictors = NULL, threshold_col = "
 #'   intervals. If 1 not parallelization is used, if > 1 parallel computing using the specified
 #'   number of CPUs will be used. Parts of parallel computing rely in BiocParallel. 
 bootstrapPerformanceIntervals <- function(data, metric = c("auprc", "precision", "recall"),
-                                          predictors = NULL, thresholds = NULL, R = 10000,
-                                          conf = 0.95, ncpus = 1,
+                                          predictors = NULL, thresholds = NULL, weighted = FALSE,
+                                          R = 10000, conf = 0.95, ncpus = 1,
                                           ci_type = c("perc", "norm", "basic", "bca")) {
   
   # parse input arguments
@@ -108,9 +117,15 @@ bootstrapPerformanceIntervals <- function(data, metric = c("auprc", "precision",
     stop("Thresholds required if bootstrapping precision or recall", call. = FALSE)
   }
   
+  # check that data contains 'weight' column if weighted performance is computed
+  if (weighted == TRUE & !"weight" %in% colnames(data)) {
+    stop("'data' needs to have weights column to calculate weighted performancs", call. = FALSE)
+  }
+  
   # subset data to specified predictors if passed via arguments
   if (!is.null(predictors)) {
-    data <- data[, c("name", "Regulated", predictors)]
+    crispr_cols <- intersect(colnames(data), c("name", "Regulated", "weight"))
+    data <- data[, c(crispr_cols, predictors)]
   }
   
   # set parallel argument for boot function
@@ -119,7 +134,7 @@ bootstrapPerformanceIntervals <- function(data, metric = c("auprc", "precision",
   # bootstrap performance
   message("Running bootstraps...")
   bs_perf <- boot(data, statistic = calculate_performance, metric = metric, R = R,
-                  parallel = parallel, ncpus = ncpus, thresholds = thresholds)
+                  parallel = parallel, ncpus = ncpus, thresholds = thresholds, weighted = weighted)
   
   # set up parallel backend for computing confidence intervals if specified
   if (ncpus > 1) {
@@ -161,6 +176,9 @@ bootstrapPerformanceIntervals <- function(data, metric = c("auprc", "precision",
 #'   tested.
 #' @param thresholds Named vector with thresholds for all predictors (e.g. at 70% recall).
 #'   Only required if metric is set to 'precision' or 'recall'.
+#' @param weighted (logical) Specifies whether weighted performance should be calculated. Requires
+#'   that 'data' contains a column called 'weight' containing a weight between 0 and 1 for each
+#'   CRISPR E-G pair.
 #' @param R Number of bootstrap replicates (default: 10000).
 #' @param conf Desired confidence levels for confidence intervals (default: 0.95).
 #' @param ci_type Confidence interval type. See ?boot.ci for more information.
@@ -168,7 +186,8 @@ bootstrapPerformanceIntervals <- function(data, metric = c("auprc", "precision",
 #'   intervals. If 1 not parallelization is used, if > 1 parallel computing using the specified
 #'   number of CPUs will be used. Parts of parallel computing rely in BiocParallel. 
 bootstrapDeltaPerformance <- function(data, metric = c("auprc", "precision", "recall"),
-                                      comparisons = NULL, thresholds = NULL, R = 10000, conf = 0.95,
+                                      comparisons = NULL, thresholds = NULL, weighted = FALSE,
+                                      R = 10000, conf = 0.95,
                                       ci_type = c("perc", "norm", "basic", "bca"), ncpus = 1) {
   
   # parse input arguments
@@ -180,11 +199,18 @@ bootstrapDeltaPerformance <- function(data, metric = c("auprc", "precision", "re
     stop("Thresholds required if bootstrapping precision", call. = FALSE)
   }
   
+  # check that data contains 'weight' column if weighted performance is computed
+  if (weighted == TRUE & !"weight" %in% colnames(data)) {
+    stop("'data' needs to have weights column to calculate weighted performancs", call. = FALSE)
+  }
+  
   # subset data to predictors in comparisons if specified, else create all pairwise comparisons
   if (!is.null(comparisons)) {
-    data <- data[, c("name", "Regulated", unique(unlist(comparisons)))]
+    crispr_cols <- intersect(colnames(data), c("name", "Regulated", "weight"))
+    data <- data[, c(crispr_cols, unique(unlist(comparisons)))]
   } else {
-    comparisons <- combn(setdiff(colnames(data), c("name", "Regulated")), m = 2, simplify = FALSE)
+    comparisons <- combn(setdiff(colnames(data), c("name", "Regulated", "weight")), m = 2,
+                         simplify = FALSE)
   }
   
   # set names for all comparisons
@@ -197,7 +223,7 @@ bootstrapDeltaPerformance <- function(data, metric = c("auprc", "precision", "re
   message("Running bootstraps...")
   bs_delta <- boot(data, statistic = calc_delta_performance, metric = metric, R = R,
                    parallel = parallel, ncpus = ncpus, thresholds = thresholds,
-                   comparisons = comparisons)
+                   comparisons = comparisons, weighted = weighted)
   
   # set up parallel backend for computing confidence intervals if specified (useful for 'bca')
   if (ncpus > 1) {
@@ -243,6 +269,9 @@ bootstrapDeltaPerformance <- function(data, metric = c("auprc", "precision", "re
 #'  intersect between predictors in data1 and data2 will be used.
 #' @param thresholds Named vector with thresholds for all predictors (e.g. at 70% recall).
 #'   Only required if metric is set to 'precision' or 'recall'.
+#' @param weighted (logical) Specifies whether weighted performance should be calculated. Requires
+#'   that 'data' contains a column called 'weight' containing a weight between 0 and 1 for each
+#'   CRISPR E-G pair.
 #' @param R Number of bootstrap replicates (default: 10000).
 #' @param conf Desired confidence levels for confidence intervals (default: 0.95).
 #' @param ci_type Confidence interval type. See ?boot.ci for more information.
@@ -251,8 +280,8 @@ bootstrapDeltaPerformance <- function(data, metric = c("auprc", "precision", "re
 #'   number of CPUs will be used. Parts of parallel computing rely in BiocParallel.
 bootstrapDeltaPerformanceDatasets <- function(data1, data2,
                                               metric = c("auprc", "precision", "recall"),
-                                              predictors = NULL, thresholds = NULL, R = 10000,
-                                              conf = 0.95, ncpus = 1,
+                                              predictors = NULL, thresholds = NULL,
+                                              weighted = FALSE, R = 10000, conf = 0.95, ncpus = 1,
                                               ci_type = c("perc", "norm", "basic", "bca")) {
   
   # parse input arguments
@@ -264,12 +293,25 @@ bootstrapDeltaPerformanceDatasets <- function(data1, data2,
     stop("Thresholds required if bootstrapping precision", call. = FALSE)
   }
   
-  # subset data to specified predictors if specified, else retain predictors shared across datasets
-  if (is.null(predictors)) {
-    predictors <- setdiff(intersect(colnames(data1), colnames(data2)), c("name", "Regulated"))
+  # check that data contains 'weight' column if weighted performance is computed
+  if (weighted == TRUE & !"weight" %in% colnames(data1)) {
+    stop("'data1' needs to have weights column to calculate weighted performancs", call. = FALSE)
   }
-  data1 <- data1[, c("name", "Regulated", predictors)]
-  data2 <- data2[, c("name", "Regulated", predictors)]
+  if (weighted == TRUE & !"weight" %in% colnames(data2)) {
+    stop("'data2' needs to have weights column to calculate weighted performancs", call. = FALSE)
+  }
+  
+  # get predictors shared across datasets unless predictors to analyze are specified
+  if (is.null(predictors)) {
+    predictors <- setdiff(intersect(colnames(data1), colnames(data2)),
+                          c("name", "Regulated", "weight"))
+  }
+  
+  # subset data to predictors to analyze
+  crispr_cols1 <- intersect(colnames(data1), c("name", "Regulated", "weight"))
+  crispr_cols2 <- intersect(colnames(data2), c("name", "Regulated", "weight"))
+  data1 <- data1[, c(intersect(crispr_cols1, crispr_cols2), predictors)]
+  data2 <- data2[, c(intersect(crispr_cols1, crispr_cols2), predictors)]
   
   # combine both datasets into one table and add column specifying dataset for each E-G pair
   data <- bind_rows(data1, data2, .id = "dataset")
@@ -281,7 +323,7 @@ bootstrapDeltaPerformanceDatasets <- function(data1, data2,
   message("Running bootstraps...")
   bs_delta <- boot(data, statistic = calc_delta_performance_datasets, metric = metric, R = R,
                    strata = data$dataset, parallel = parallel, ncpus = ncpus,
-                   thresholds = thresholds)
+                   thresholds = thresholds, weighted = weighted)
   
   # set up parallel backend for computing confidence intervals if specified (useful for 'bca')
   if (ncpus > 1) {
@@ -353,13 +395,13 @@ plotBootstrappedIntervals <- function(results, title = NULL) {
 ## FUNCTIONS TO COMPUTE PERFORMANCE AND DELTA PERFORMANCE ==========================================
 
 # calculate performance AUPRC, or precision or recall at threshold
-calculate_performance <- function(data, indices, metric, thresholds) {
+calculate_performance <- function(data, indices, metric, thresholds, weighted) {
   
   # select bootstrap sample
   data <- data[indices, ]
   
   # get all predictors in input data
-  preds <- setdiff(colnames(data), c("name", "Regulated", "dataset"))
+  preds <- setdiff(colnames(data), c("name", "Regulated", "weight", "dataset"))
   
   # if thresholds are provided, get thresholds for these predictors else create NA thresholds
   if (!is.null(thresholds)) {
@@ -370,7 +412,8 @@ calculate_performance <- function(data, indices, metric, thresholds) {
   
   # calculate performance for all predictors
   performance <- mapply(FUN = calculate_performance_one_pred, pred = preds, threshold = thresholds,
-                        MoreArgs = list(data = data, metric = metric), SIMPLIFY = TRUE)
+                        MoreArgs = list(data = data, metric = metric, weighted = weighted),
+                        SIMPLIFY = TRUE)
   
   return(performance)
   
@@ -378,10 +421,11 @@ calculate_performance <- function(data, indices, metric, thresholds) {
 
 # function to calculate delta AUPRC, or precision or recall at threshold between pairwise
 # predictor combinations
-calc_delta_performance <- function(data, indices, metric, thresholds, comparisons) {
+calc_delta_performance <- function(data, indices, metric, thresholds, comparisons, weighted) {
   
   # calculate bootstrapped performance
-  perf <- calculate_performance(data, indices = indices, metric = metric, thresholds = thresholds)
+  perf <- calculate_performance(data, indices = indices, metric = metric, thresholds = thresholds,
+                                weighted = weighted)
   
   # calculate delta performance for all specified comparisons
   delta_perf <- vapply(comparisons, FUN = function(comp, perf) {
@@ -393,7 +437,7 @@ calc_delta_performance <- function(data, indices, metric, thresholds, comparison
 }
 
 # function to calculate delta AUPRC, or precision or recall at threshold between 2 datasets
-calc_delta_performance_datasets <- function(data, indices, metric, thresholds) {
+calc_delta_performance_datasets <- function(data, indices, metric, thresholds, weighted) {
   
   # select bootstrap sample
   data <- data[indices, ]
@@ -402,9 +446,9 @@ calc_delta_performance_datasets <- function(data, indices, metric, thresholds) {
   data1 <- data[data$dataset == "1", ]
   data2 <- data[data$dataset == "2", ]
   perf1 <- calculate_performance(data1, indices = seq_len(nrow(data1)), metric = metric,
-                                  thresholds = thresholds)
+                                  thresholds = thresholds, weighted = weighted)
   perf2 <- calculate_performance(data2, indices = seq_len(nrow(data2)), metric = metric,
-                                  thresholds = thresholds)
+                                  thresholds = thresholds, weighted = weighted)
   
   # calculate delta performance for all predictors
   delta_perf <- perf1 - perf2
@@ -417,7 +461,7 @@ calc_delta_performance_datasets <- function(data, indices, metric, thresholds) {
 ## HELPER FUNCTIONS ================================================================================
 
 # calculate performance auprc, or precision or recall at threshold for one predictor
-calculate_performance_one_pred <- function(data, pred, threshold, metric) {
+calculate_performance_one_pred <- function(data, pred, threshold, metric, weighted) {
   
   # return NA if 'Regulated' column does not contain at least one positive and negative
   if (length(unique(data$Regulated)) != 2) {
@@ -427,13 +471,21 @@ calculate_performance_one_pred <- function(data, pred, threshold, metric) {
   }
   
   # compute precision-recall curve
-  pr <- performance(prediction(data[[pred]], data$Regulated), measure = "prec", x.measure = "rec")
+  if (weighted == TRUE) {
+    pr <- pr_curve(data, !!sym(pred), truth = Regulated, event_level = "second",
+                   case_weights = weight)
+  } else {
+    pr <- pr_curve(data, !!sym(pred), truth = Regulated, event_level = "second")
+  }
   
-  # convert to data.frame
+  # remove top an bottom rows to make AUPRC calculation consistent with CRISPR benchmarking pipeline
+  pr <- head(pr, -1)[-1,]
+  
+  # rename and reorder columns
   pr <- data.frame(
-    alpha = pr@alpha.values[[1]],
-    precision = pr@y.values[[1]],
-    recall = pr@x.values[[1]]
+    alpha = pr$.threshold,
+    precision = pr$precision,
+    recall = pr$recall
   )
   
   # calculate AUPRC, or precision or recall at threshold performance

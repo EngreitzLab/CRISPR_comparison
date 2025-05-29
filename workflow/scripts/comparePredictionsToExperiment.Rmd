@@ -319,7 +319,7 @@ if (is.null(snakemake@params$dist_bins_kb)) {
   dist_breaks <- as.numeric(snakemake@params$dist_bins_kb)
 }
 
-# bin pairs by distance
+# convert distance to TSS to kb and bin into distance bins
 dist_bins <- merged %>% 
   filter(pred_uid == "baseline.distToTSS") %>% 
   mutate(pred_value = pred_value / 1000) %>% 
