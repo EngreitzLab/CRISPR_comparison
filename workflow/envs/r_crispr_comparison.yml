@@ -22,6 +22,7 @@ dependencies:
   - r-rmarkdown=2.21
   - r-bookdown=0.34
   - r-optparse=1.7.3
+  - r-yardstick=1.2.0
   - bioconductor-genomicranges=1.46.1
   - bioconductor-rtracklayer=1.54.0
   - bioconductor-biocparallel=1.28.3
