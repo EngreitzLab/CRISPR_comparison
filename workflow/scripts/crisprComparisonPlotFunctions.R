@@ -302,29 +302,10 @@ makePRSummaryTableBS <- function(merged, pred_config, pos_col, threshold_col = "
   thresholds <- getThresholdValues(pred_config, predictors = preds, threshold_col = threshold_col)
   
   # bootstrap overall performance (AUPRC) and reformat for performance summary table
+  message("Bootstrapping AUPRC:")
   perf <- bootstrapPerformanceIntervals(merged_bs, metric = "auprc", R = R, conf = conf,
                                         ci_type = "perc", ncpus = ncpus)
   perf <- select(perf, pred_uid = id, AUPRC = full, AUPRC_lowerCi = lower, AUPRC_upperCi = upper)
-  
-  # bootstrap precision at defined thresholds (if there are any)
-  if (length(thresholds) > 0) {
-    
-    # get data on predictors with thresholds
-    merged_bs_thresh <- select(merged_bs, name, Regulated, any_of(names(thresholds)))
-    
-    # run precision bootstraps using defined thresholds 
-    prec_thresh <- bootstrapPerformanceIntervals(merged_bs_thresh, metric = "precision",
-                                                 thresholds = thresholds, R = R, conf = conf,
-                                                 ci_type = "perc", ncpus = ncpus)
-    # add to performance table
-    perf <- prec_thresh %>% 
-      select(pred_uid = id, PrecThresh = full, PrecThresh_lowerCi = lower,
-             PrecThresh_upperCi = upper) %>% 
-      left_join(enframe(thresholds, name = "pred_uid", value = "threshold"),
-                by = "pred_uid") %>% 
-      left_join(perf, ., by = "pred_uid")
-    
-  }
   
   # get performance at minimum sensitivity
   pr <- calcPRCurves(merged, pred_config = pred_config, pos_col = pos_col)
@@ -337,20 +318,74 @@ makePRSummaryTableBS <- function(merged, pred_config, pos_col, threshold_col = "
   # extract threshold at min sensitivity
   thresholds_min_sens <- deframe(select(perf_min_sens, pred_uid, alpha_at_min_sensitivity))
   
-  # bootstrap precison at minimum sensitivity
+  # bootstrap precision at minimum sensitivity
+  message("Bootstrapping precision at minimum sensitivity:")
   prec_min_sens <- bootstrapPerformanceIntervals(merged_bs, metric = "precision",
                                                  thresholds = thresholds_min_sens, R = R,
                                                  conf = conf, ci_type = "perc", ncpus = ncpus)
   
-  # add to performance table
-  perf <- prec_min_sens %>% 
+  # select relevant columns and reformat names for output
+  prec_min_sens <- prec_min_sens %>% 
     select(pred_uid = id, PrecMinSens = full, PrecMinSens_lowerCi = lower,
-           PrecMinSens_upperCi = upper) %>% 
-    left_join(enframe(thresholds_min_sens, name = "pred_uid", value = "thresholdMinSens"),
-              by = "pred_uid") %>% 
-    left_join(perf, ., by = "pred_uid")
+           PrecMinSens_upperCi = upper)
   
-  # sort accoring to overall performance for output
+  # bootstrap recall at minimum sensitivity (to get confidence intervals on min sensitivity)
+  message("Bootstrapping recall at minimum sensitivity:")
+  recall_min_sens <- bootstrapPerformanceIntervals(merged_bs, metric = "recall",
+                                                  thresholds = thresholds_min_sens, R = R,
+                                                  conf = conf, ci_type = "perc", ncpus = ncpus)
+  
+  # select relevant columns and reformat names for output
+  recall_min_sens <- recall_min_sens %>% 
+    select(pred_uid = id, RecallMinSens = full, RecallMinSens_lowerCi = lower,
+           RecallMinSens_upperCi = upper)
+  
+  # add to performance table
+  perf <- perf %>%
+    mutate(MinSensitivity = min_sensitivity) %>% 
+    left_join(prec_min_sens, by = "pred_uid") %>% 
+    left_join(recall_min_sens, by = "pred_uid") %>% 
+    left_join(enframe(thresholds_min_sens, name = "pred_uid", value = "ThresholdMinSens"),
+              by = "pred_uid") 
+  
+  # bootstrap precision and recall at defined thresholds (if there are any)
+  if (length(thresholds) > 0) {
+    
+    # get data on predictors with thresholds
+    merged_bs_thresh <- select(merged_bs, name, Regulated, any_of(names(thresholds)))
+    
+    # run precision bootstraps using defined thresholds
+    message("Bootstrapping precision at threshold:")
+    prec_thresh <- bootstrapPerformanceIntervals(merged_bs_thresh, metric = "precision",
+                                                 thresholds = thresholds, R = R, conf = conf,
+                                                 ci_type = "perc", ncpus = ncpus)
+    
+    # select relevant columns and reformat names for output
+    prec_thresh <- prec_thresh %>%
+      select(pred_uid = id, PrecThresh = full, PrecThresh_lowerCi = lower,
+             PrecThresh_upperCi = upper)
+    
+    # run recall bootstraps using defined thresholds
+    message("Bootstrapping recall at threshold:")
+    recall_thresh <- bootstrapPerformanceIntervals(merged_bs_thresh, metric = "recall",
+                                                  thresholds = thresholds, R = R, conf = conf,
+                                                  ci_type = "perc", ncpus = ncpus)
+    
+    # select relevant columns and reformat names for output
+    recall_thresh <- recall_thresh %>%
+      select(pred_uid = id, RecallThresh = full, RecallThresh_lowerCi = lower,
+             RecallThresh_upperCi = upper)
+    
+    # combine and add to performance table
+    perf <- perf %>% 
+      left_join(enframe(thresholds, name = "pred_uid", value = "Threshold"),
+                by = "pred_uid") %>% 
+      left_join(prec_thresh, by = "pred_uid") %>% 
+      left_join(recall_thresh, by = "pred_uid")
+      
+  }
+  
+  # sort according to overall performance for output
   perf <- arrange(perf, desc(AUPRC))
     
   return(perf)
