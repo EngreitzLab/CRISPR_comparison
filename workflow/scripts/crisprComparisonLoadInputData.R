@@ -206,22 +206,22 @@ load_encode_pred_file <- function(file, showProgress) {
 # load one predictor file in igvf format and convert to generic format
 load_igvf_pred_file <- function(file, showProgress) {
   
-  # get header lines and extract biosample name (BiosampleTermName)
+  # get header lines and extract cell type (SampleSummaryShort)
   header <- grep(readLines(file, n = 1000), pattern = "^#", value = TRUE)
-  biosample <- grep(header, pattern = "BiosampleTermName", value = 1)
-  biosample <- sub(".*BiosampleTermName:[ ]*", "", biosample)
+  biosample <- grep(header, pattern = "SampleSummaryShort", value = 1)
+  biosample <- sub(".*SampleSummaryShort:[ ]*", "", biosample)
   
   # load predictions table and skip header lines (cautious approach, fread() should skip '#' lines)
   pred <- fread(file, skip = length(header), showProgress = showProgress)
   
-  # add BiosampleTermName column if missing
-  if (!"BiosampleTermName" %in% colnames(pred)) {
-    pred$BiosampleTermName <- biosample
+  # add SampleSummaryShort column if missing
+  if (!"SampleSummaryShort" %in% colnames(pred)) {
+    pred$SampleSummaryShort <- biosample
   }
   
   # select relevant columns for benchmarking pipeline
   base_cols <- c("ElementChr", "ElementStart", "ElementEnd", "ElementName", "ElementClass",
-                 "GeneSymbol", "GeneEnsemblID", "GeneTSS", "BiosampleTermName")
+                 "GeneSymbol", "GeneEnsemblID", "GeneTSS", "SampleSummaryShort")
   score_cols <- setdiff(colnames(pred), base_cols)
   select_cols <- c(base_cols[c(1:4, 6, 9)], score_cols)
   pred <- pred[, ..select_cols]
