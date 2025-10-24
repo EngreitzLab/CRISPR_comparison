@@ -28,6 +28,12 @@ Other notes:
  	* (optional) Cell type mappings between cell types in predictions and experiment
  	
 ### Dependencies
+The workflow requires a standard computer with 4GB+ RAM.
+
+The workflow is compatible with Linux. It has been tested successfully on the following systems:
+- Linux: Red Hat Enterprise Linux 8.10 (Ootpa)
+- Linux: CentOS Linux 7 (Core)
+
 Running the workflow requires that
 [snakemake (>=5.10.0)](https://snakemake.readthedocs.io/en/stable/index.html) and conda
 (e.g. [miniconda](https://docs.conda.io/en/latest/miniconda.html)) are installed.
