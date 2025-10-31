@@ -198,6 +198,12 @@ load_encode_pred_file <- function(file, showProgress) {
   # load predictions and remove optional "#" in header row
   pred <- fread(file)
   colnames(pred)[[1]] <- sub("^#", "", colnames(pred)[[1]])
+
+  if ("PredictionCellType" %in% colnames(pred)) {
+    pred <- pred %>% rename(CellType = PredictionCellType)
+  }
+
+  pred <- pred %>% mutate(name = paste0(chr, ":", start, "-", end))
   
   return(pred)
   
