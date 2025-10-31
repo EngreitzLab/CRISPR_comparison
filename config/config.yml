@@ -16,3 +16,4 @@ comparisons:
     gene_features: Null
     enh_features: Null
     enh_assays: Null
+    auc_left_rectangle: FALSE
