@@ -123,7 +123,7 @@ write_tsv(pr_table, file = file.path(dirname(snakemake@output[[1]]), "pr_table.t
 
 # create performance summary tables
 perf_summary <- applyCellTypes(merged, .fun = makePRSummaryTableBS, pred_config = pred_config,
-                               pos_col = pos_col)
+                               pos_col = pos_col, auc_left_rectangle = snakemake@params$auc_left_rectangle)
 
 # convert performance summaries to one table and add full predictor names to performance summary
 perf_summary <- perf_summary %>% 
@@ -152,7 +152,8 @@ pr_plots <- mapply(FUN = makePRCurvePlot, pr_df = pr, n_pos = n_pos, pct_pos = p
                    MoreArgs = list(pred_config = pred_config,
                                    min_sensitivity = snakemake@params$min_sensitivity,
                                    line_width = 0.8, point_size = 3,
-                                   text_size = 13, colors = pred_colors),
+                                   text_size = 13, colors = pred_colors,
+                                   auc_left_rectangle = snakemake@params$auc_left_rectangle),
                    SIMPLIFY = FALSE)
 
 # save plots to files
@@ -375,7 +376,8 @@ if (length(invalid_bins) > 0) {
 # compute performance as a function of distance to TSS
 dist_perf <- applyCellTypes(merged_bins_filt, .fun = computePerfSubsets, pred_config = pred_config,
                             subset_col = "distToTSS (bins)", metric = "auprc", pos_col = pos_col,
-                            bs_iter = 1000)
+                            bs_iter = 1000, 
+                            auc_left_rectangle = snakemake@params$auc_left_rectangle)
 
 # create table of performance across distance
 dist_perf_tbl <- bind_rows(dist_perf, .id = "cell_type")
@@ -410,7 +412,8 @@ dist_prc_plots <- applyCellTypes(merged_bins_filt, .fun = makePRCurveSubsets,
                                  pos_col = pos_col,
                                  min_sensitivity = snakemake@params$min_sensitivity,
                                  line_width = 0.8, point_size = 3, text_size = 13, nrow = nrow,
-                                 colors = pred_colors)
+                                 colors = pred_colors,
+                                 auc_left_rectangle = snakemake@params$auc_left_rectangle)
 
 # calculate plot dimensions based on number of features
 plot_height <- nrow * 4
@@ -544,7 +547,8 @@ if (length(gene_feat_cols) > 0) {
                                     pred_config = pred_config, pos_col = pos_col,
                                     min_sensitivity = snakemake@params$min_sensitivity,
                                     line_width = 1.2, point_size = 3.5, text_size = 13,
-                                    colors = pred_colors)
+                                    colors = pred_colors,
+                                    auc_left_rectangle = snakemake@params$auc_left_rectangle)
   
   # calculate plot dimensions based on number of features
   n_features <- length(gene_feat_cols)
@@ -574,7 +578,8 @@ if (length(enh_feat_cols) > 0) {
                                    pred_config = pred_config, pos_col = pos_col,
                                    min_sensitivity = snakemake@params$min_sensitivity,
                                    line_width = 1.2, point_size = 3.5, text_size = 13,
-                                   colors = pred_colors)
+                                   colors = pred_colors,
+                                   auc_left_rectangle = snakemake@params$auc_left_rectangle)
   
   # calculate plot dimensions based on number of features
   n_features <- length(enh_feat_cols)

@@ -292,7 +292,8 @@ calcPRCurves <- function(df, pred_config, pos_col) {
 
 # create bootstrapped performance summary table for all predictors in a PR table
 makePRSummaryTableBS <- function(merged, pred_config, pos_col, threshold_col = "alpha",
-                                 min_sensitivity = 0.7, R = 1000, conf = 0.95, ncpus = 1) {
+                                 min_sensitivity = 0.7, R = 1000, conf = 0.95, ncpus = 1,
+                                 auc_left_rectangle = FALSE) {
   
   # convert merged to wide format for bootstrapping
   merged_bs <- convertMergedForBootstrap(merged, pred_config = pred_config, pos_col = pos_col)
@@ -304,7 +305,8 @@ makePRSummaryTableBS <- function(merged, pred_config, pos_col, threshold_col = "
   # bootstrap overall performance (AUPRC) and reformat for performance summary table
   message("Bootstrapping AUPRC:")
   perf <- bootstrapPerformanceIntervals(merged_bs, metric = "auprc", R = R, conf = conf,
-                                        ci_type = "perc", ncpus = ncpus)
+                                        ci_type = "perc", ncpus = ncpus,
+                                        auc_left_rectangle = auc_left_rectangle)
   perf <- select(perf, pred_uid = id, AUPRC = full, AUPRC_lowerCi = lower, AUPRC_upperCi = upper)
   
   # get performance at minimum sensitivity
@@ -396,11 +398,13 @@ makePRSummaryTableBS <- function(merged, pred_config, pos_col, threshold_col = "
 makePRCurvePlot <- function(pr_df, pred_config, n_pos, pct_pos, min_sensitivity = 0.7,
                             plot_name = "PRC full experimental data", line_width = 1, 
                             point_size = 3, text_size = 15, colors = NULL, plot_thresholds = TRUE,
-                            na_color = "gray66", na_size_factor = 0.5) {
+                            na_color = "gray66", na_size_factor = 0.5,
+                            auc_left_rectangle = FALSE) {
   
   # create performance summary
   perf_summary <- makePRSummaryTable(pr_df, pred_config = pred_config,
-                                     min_sensitivity = min_sensitivity)
+                                     min_sensitivity = min_sensitivity,
+                                     auc_left_rectangle = auc_left_rectangle)
   
   # get PR values at threshold
   pr_threshold <- perf_summary %>% 
@@ -685,7 +689,7 @@ plotPairsFeatures <- function(n_pairs_features,
 # calculate and plot PR curves for a given subset
 makePRCurveSubset <- function(merged, subset_col, pred_config, pos_col, min_sensitivity = 0.7,
                               line_width = 1, point_size = 3, text_size = 15, nrow = 1,
-                              colors = NULL) {
+                              colors = NULL, auc_left_rectangle = FALSE) {
   
   # split df into subsets based on provided column
   merged_split <- split(merged, f = merged[[subset_col]])
@@ -723,7 +727,8 @@ makePRCurveSubset <- function(merged, subset_col, pred_config, pos_col, min_sens
   pr_plots <- mapply(FUN = makePRCurvePlot, pr_df = prc, n_pos = n_pos, pct_pos = pct_pos, plot_name = titles, 
                      MoreArgs = list(pred_config = pred_config, min_sensitivity = min_sensitivity,
                                      line_width = line_width, point_size = point_size,
-                                     text_size = text_size, colors = colors),
+                                     text_size = text_size, colors = colors,
+                                     auc_left_rectangle = auc_left_rectangle),
                      SIMPLIFY = FALSE)
   
   # add empty plots for subsets without both positives and negatives
@@ -745,7 +750,8 @@ makePRCurveSubset <- function(merged, subset_col, pred_config, pos_col, min_sens
 # cell type
 makePRCurveSubsets <- function(merged, subset_cols, pred_config, pos_col, cell_type = "combined",
                                min_sensitivity = 0.7, line_width = 1, point_size = 3,
-                               text_size = 15, nrow = 1, colors = NULL) {
+                               text_size = 15, nrow = 1, colors = NULL,
+                               auc_left_rectangle = FALSE) {
   
   # return NULL if no subsets are available
   if (length(subset_cols) == 0) {
@@ -756,7 +762,8 @@ makePRCurveSubsets <- function(merged, subset_cols, pred_config, pos_col, cell_t
   pr_plots <- lapply(subset_cols, FUN = makePRCurveSubset, merged = merged,
                      pred_config = pred_config, pos_col = pos_col,
                      min_sensitivity = min_sensitivity, line_width = line_width,
-                     point_size = point_size, text_size = text_size, nrow = nrow, colors = colors)
+                     point_size = point_size, text_size = text_size, nrow = nrow, colors = colors,
+                     auc_left_rectangle = auc_left_rectangle)
   
   # create one figure with all plots
   plot_grid(plotlist = pr_plots, nrow = length(subset_cols))
@@ -1013,10 +1020,16 @@ pr2df <- function(pr, calc_f1 = TRUE) {
 }
 
 # try to compute AUC
-computeAUC <- function(x_vals, y_vals) {
+computeAUC <- function(x_vals, y_vals,
+                       auc_left_rectangle = FALSE) {
   good.idx <- which(!is.na(x_vals) & !is.na(y_vals))
   if (length(good.idx) > 0) {
     auc <- trapz(x_vals[good.idx], y_vals[good.idx])
+    # Add the area of the rectangle formed by the left end 
+    # of the curve and the origin.
+    if(auc_left_rectangle == "True"){
+      auc <- auc + x_vals[good.idx[1]] * y_vals[good.idx[1]]
+    }
   } else {
     auc <- NA_real_
   }
@@ -1210,7 +1223,8 @@ get_alpha_min <- function(merged, predictor, inverse = FALSE) {
 ## DEPRECATED ======================================================================================
 
 # create performance summary table for all predictors in a PR table
-makePRSummaryTable <- function(pr_df, pred_config, min_sensitivity = 0.7) {
+makePRSummaryTable <- function(pr_df, pred_config, min_sensitivity = 0.7,
+                               auc_left_rectangle = FALSE) {
   
   # remove any boolean predictors since the following metrics don't make sense for them
   bool_preds <- pull(filter(pred_config, boolean == TRUE), pred_uid)
@@ -1219,7 +1233,9 @@ makePRSummaryTable <- function(pr_df, pred_config, min_sensitivity = 0.7) {
   # compute performance summary for each predictor
   perf_summary <- pr_df %>% 
     group_split(pred_uid) %>% 
-    lapply(calcPerfSummaryOnePred, pred_config = pred_config, min_sensitivity = min_sensitivity) %>% 
+    lapply(calcPerfSummaryOnePred, pred_config = pred_config, 
+           min_sensitivity = min_sensitivity, 
+           auc_left_rectangle = auc_left_rectangle) %>% 
     bind_rows()
   
   # add predictor information from pred_config
@@ -1241,7 +1257,8 @@ makePRSummaryTable <- function(pr_df, pred_config, min_sensitivity = 0.7) {
 }
 
 # create performance summary for one predictor
-calcPerfSummaryOnePred <- function(pr_df, pred_config, min_sensitivity) {
+calcPerfSummaryOnePred <- function(pr_df, pred_config, min_sensitivity,
+                                   auc_left_rectangle = FALSE) {
   
   # check that pr_df contains data on only one predictor
   predictor <- unique(pr_df$pred_uid)
@@ -1259,7 +1276,8 @@ calcPerfSummaryOnePred <- function(pr_df, pred_config, min_sensitivity) {
   # (1,0) on the PR curve. This should not be included in the AUC computation.
   auprc <- pr_df %>% 
     head(-1) %>% 
-    summarize(AUPRC = computeAUC(x_vals = recall, y_vals = precision),
+    summarize(AUPRC = computeAUC(x_vals = recall, y_vals = precision,
+                                 auc_left_rectangle = auc_left_rectangle),
               max_F1 = computeMaxF1(.))
   
   # compute performance at min sensitivity

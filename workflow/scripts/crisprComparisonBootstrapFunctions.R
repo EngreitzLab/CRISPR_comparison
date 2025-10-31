@@ -106,7 +106,8 @@ getThresholdValues <- function(pred_config, predictors = NULL, threshold_col = "
 bootstrapPerformanceIntervals <- function(data, metric = c("auprc", "precision", "recall"),
                                           predictors = NULL, thresholds = NULL, weighted = FALSE,
                                           R = 10000, conf = 0.95, ncpus = 1,
-                                          ci_type = c("perc", "norm", "basic", "bca")) {
+                                          ci_type = c("perc", "norm", "basic", "bca"),
+                                          auc_left_rectangle = FALSE) {
   
   # parse input arguments
   metric <- match.arg(metric)
@@ -134,7 +135,8 @@ bootstrapPerformanceIntervals <- function(data, metric = c("auprc", "precision",
   # bootstrap performance
   message("Running bootstraps...")
   bs_perf <- boot(data, statistic = calculate_performance, metric = metric, R = R,
-                  parallel = parallel, ncpus = ncpus, thresholds = thresholds, weighted = weighted)
+                  parallel = parallel, ncpus = ncpus, thresholds = thresholds, weighted = weighted,
+                  auc_left_rectangle = auc_left_rectangle)
   
   # set up parallel backend for computing confidence intervals if specified
   if (ncpus > 1) {
@@ -188,7 +190,8 @@ bootstrapPerformanceIntervals <- function(data, metric = c("auprc", "precision",
 bootstrapDeltaPerformance <- function(data, metric = c("auprc", "precision", "recall"),
                                       comparisons = NULL, thresholds = NULL, weighted = FALSE,
                                       R = 10000, conf = 0.95,
-                                      ci_type = c("perc", "norm", "basic", "bca"), ncpus = 1) {
+                                      ci_type = c("perc", "norm", "basic", "bca"), ncpus = 1,
+                                      auc_left_rectangle = auc_left_rectangle) {
   
   # parse input arguments
   metric <- match.arg(metric)
@@ -223,7 +226,8 @@ bootstrapDeltaPerformance <- function(data, metric = c("auprc", "precision", "re
   message("Running bootstraps...")
   bs_delta <- boot(data, statistic = calc_delta_performance, metric = metric, R = R,
                    parallel = parallel, ncpus = ncpus, thresholds = thresholds,
-                   comparisons = comparisons, weighted = weighted)
+                   comparisons = comparisons, weighted = weighted,
+                   auc_left_rectangle = auc_left_rectangle)
   
   # set up parallel backend for computing confidence intervals if specified (useful for 'bca')
   if (ncpus > 1) {
@@ -282,7 +286,8 @@ bootstrapDeltaPerformanceDatasets <- function(data1, data2,
                                               metric = c("auprc", "precision", "recall"),
                                               predictors = NULL, thresholds = NULL,
                                               weighted = FALSE, R = 10000, conf = 0.95, ncpus = 1,
-                                              ci_type = c("perc", "norm", "basic", "bca")) {
+                                              ci_type = c("perc", "norm", "basic", "bca"),
+                                              auc_left_rectangle = FALSE) {
   
   # parse input arguments
   metric <- match.arg(metric)
@@ -323,7 +328,8 @@ bootstrapDeltaPerformanceDatasets <- function(data1, data2,
   message("Running bootstraps...")
   bs_delta <- boot(data, statistic = calc_delta_performance_datasets, metric = metric, R = R,
                    strata = data$dataset, parallel = parallel, ncpus = ncpus,
-                   thresholds = thresholds, weighted = weighted)
+                   thresholds = thresholds, weighted = weighted,
+                   auc_left_rectangle = auc_left_rectangle)
   
   # set up parallel backend for computing confidence intervals if specified (useful for 'bca')
   if (ncpus > 1) {
@@ -395,7 +401,8 @@ plotBootstrappedIntervals <- function(results, title = NULL) {
 ## FUNCTIONS TO COMPUTE PERFORMANCE AND DELTA PERFORMANCE ==========================================
 
 # calculate performance AUPRC, or precision or recall at threshold
-calculate_performance <- function(data, indices, metric, thresholds, weighted) {
+calculate_performance <- function(data, indices, metric, thresholds, weighted,
+                                  auc_left_rectangle = FALSE) {
   
   # select bootstrap sample
   data <- data[indices, ]
@@ -412,7 +419,8 @@ calculate_performance <- function(data, indices, metric, thresholds, weighted) {
   
   # calculate performance for all predictors
   performance <- mapply(FUN = calculate_performance_one_pred, pred = preds, threshold = thresholds,
-                        MoreArgs = list(data = data, metric = metric, weighted = weighted),
+                        MoreArgs = list(data = data, metric = metric, weighted = weighted,
+                                        auc_left_rectangle = auc_left_rectangle),
                         SIMPLIFY = TRUE)
   
   return(performance)
@@ -421,11 +429,13 @@ calculate_performance <- function(data, indices, metric, thresholds, weighted) {
 
 # function to calculate delta AUPRC, or precision or recall at threshold between pairwise
 # predictor combinations
-calc_delta_performance <- function(data, indices, metric, thresholds, comparisons, weighted) {
+calc_delta_performance <- function(data, indices, metric, thresholds, comparisons, weighted,
+                                   auc_left_rectangle = FALSE) {
   
   # calculate bootstrapped performance
   perf <- calculate_performance(data, indices = indices, metric = metric, thresholds = thresholds,
-                                weighted = weighted)
+                                weighted = weighted,
+                                auc_left_rectangle = auc_left_rectangle)
   
   # calculate delta performance for all specified comparisons
   delta_perf <- vapply(comparisons, FUN = function(comp, perf) {
@@ -437,7 +447,8 @@ calc_delta_performance <- function(data, indices, metric, thresholds, comparison
 }
 
 # function to calculate delta AUPRC, or precision or recall at threshold between 2 datasets
-calc_delta_performance_datasets <- function(data, indices, metric, thresholds, weighted) {
+calc_delta_performance_datasets <- function(data, indices, metric, thresholds, weighted,
+                                            auc_left_rectangle = FALSE) {
   
   # select bootstrap sample
   data <- data[indices, ]
@@ -446,9 +457,11 @@ calc_delta_performance_datasets <- function(data, indices, metric, thresholds, w
   data1 <- data[data$dataset == "1", ]
   data2 <- data[data$dataset == "2", ]
   perf1 <- calculate_performance(data1, indices = seq_len(nrow(data1)), metric = metric,
-                                  thresholds = thresholds, weighted = weighted)
+                                 thresholds = thresholds, weighted = weighted,
+                                 auc_left_rectangle = auc_left_rectangle)
   perf2 <- calculate_performance(data2, indices = seq_len(nrow(data2)), metric = metric,
-                                  thresholds = thresholds, weighted = weighted)
+                                 thresholds = thresholds, weighted = weighted,
+                                 auc_left_rectangle = auc_left_rectangle)
   
   # calculate delta performance for all predictors
   delta_perf <- perf1 - perf2
@@ -461,7 +474,8 @@ calc_delta_performance_datasets <- function(data, indices, metric, thresholds, w
 ## HELPER FUNCTIONS ================================================================================
 
 # calculate performance auprc, or precision or recall at threshold for one predictor
-calculate_performance_one_pred <- function(data, pred, threshold, metric, weighted) {
+calculate_performance_one_pred <- function(data, pred, threshold, metric, weighted,
+                                           auc_left_rectangle = FALSE) {
   
   # return NA if 'Regulated' column does not contain at least one positive and negative
   if (length(unique(data$Regulated)) != 2) {
@@ -492,7 +506,7 @@ calculate_performance_one_pred <- function(data, pred, threshold, metric, weight
   if (metric %in% c("precision", "recall")) {
     performance <- calculate_performance_at_threshold(pr, threshold = threshold, metric = metric)
   } else if (metric == "auprc") {
-    performance <- calculate_auprc(pr)
+    performance <- calculate_auprc(pr, auc_left_rectangle = auc_left_rectangle)
   } else {
     stop("Invalid 'metric' argument", call. = FALSE)
   }
@@ -502,7 +516,7 @@ calculate_performance_one_pred <- function(data, pred, threshold, metric, weight
 }
 
 # calculate area-under-the-precision-recall-curve (AUPRC)
-calculate_auprc <- function(pr) {
+calculate_auprc <- function(pr, auc_left_rectangle = FALSE) {
   
   # the head() calls here remove the last element of the vector. 
   # The point is that performance objects produced by ROCR always include a Recall = 100% point even
@@ -511,17 +525,24 @@ calculate_auprc <- function(pr) {
   pr <- head(pr, -1)
   
   # compute auprc
-  auprc <- compute_auc(x_vals = pr$recall, y_vals = pr$precision)
+  auprc <- compute_auc(x_vals = pr$recall, y_vals = pr$precision,
+                       auc_left_rectangle = auc_left_rectangle)
   
   return(auprc)
   
 }
 
 # try to compute area under the curve
-compute_auc <- function(x_vals, y_vals) {
+compute_auc <- function(x_vals, y_vals, 
+                        auc_left_rectangle = FALSE) {
   good.idx <- which(!is.na(x_vals) & !is.na(y_vals))
   if (length(good.idx) > 0) {
     auc <- trapz(x_vals[good.idx], y_vals[good.idx])
+    # Add the area of the rectangle formed by the left end 
+    # of the curve and the origin.
+    if(auc_left_rectangle == "True"){
+      auc <- auc + x_vals[good.idx[1]] * y_vals[good.idx[1]]
+    }
   } else {
     auc <- NA_real_
   }
