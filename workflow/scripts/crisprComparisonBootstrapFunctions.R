@@ -478,8 +478,9 @@ calculate_performance_one_pred <- function(data, pred, threshold, metric, weight
     pr <- pr_curve(data, !!sym(pred), truth = Regulated, event_level = "second")
   }
   
-  # remove top an bottom rows to make AUPRC calculation consistent with CRISPR benchmarking pipeline
-  pr <- head(pr, -1)[-1,]
+  # remove top row to make AUPRC calculation consistent with other PR calculations in CRISPR
+  # benchmarking pipeline
+  pr <- pr[-1, ]
   
   # rename and reorder columns
   pr <- data.frame(
