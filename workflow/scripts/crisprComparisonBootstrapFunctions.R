@@ -8,6 +8,7 @@ library(data.table)
 library(dplyr)
 library(BiocParallel)
 
+
 #' Reformat CRISPR benchmarking data for bootstrapping
 #'
 #' Convert merged data from CRISPR benchmarking pipeline into format required for bootstrapping
@@ -137,15 +138,11 @@ bootstrapPerformanceIntervals <- function(data, metric = c("auprc", "precision",
                   parallel = parallel, ncpus = ncpus, thresholds = thresholds, weighted = weighted)
   
   # set up parallel backend for computing confidence intervals if specified
-  if (ncpus > 1) {
-    register(MulticoreParam(workers = ncpus))
-  } else {
-    register(SerialParam())
-  }
-  
+  setup_parallel_backend(ncpus)
+
   # compute confidence intervals for all predictors
   message("Computing confidence intervals...")
-  pred_indices <- seq_along(bs_perf$t0)[!is.na(bs_perf$t0)]  # indices of non-NA predictors 
+  pred_indices <- seq_along(bs_perf$t0)[!is.na(bs_perf$t0)]  # indices of non-NA predictors
   ci <- bplapply(pred_indices, FUN = boot.ci, boot.out = bs_perf, conf = conf,
                  type = ci_type)
   
@@ -226,27 +223,23 @@ bootstrapDeltaPerformance <- function(data, metric = c("auprc", "precision", "re
                    comparisons = comparisons, weighted = weighted)
   
   # set up parallel backend for computing confidence intervals if specified (useful for 'bca')
-  if (ncpus > 1) {
-    register(MulticoreParam(workers = ncpus))
-  } else {
-    register(SerialParam())
-  }
-  
+  setup_parallel_backend(ncpus)
+
   # compute confidence intervals for all predictors
   message("Computing confidence intervals...")
   ci <- bplapply(seq_along(bs_delta$t0), FUN = boot.ci, boot.out = bs_delta, conf = conf,
                  type = ci_type)
-  
+
   # process boot.ci output to make pretty output table
   output <- process_ci(ci, boot = bs_delta, metric = paste0("delta_", metric))
-  
+
   # compute p-values under the null hypothesis that delta is 0
   message("Computing p-values...")
   pvalues <- compute_pvalues(bs_delta, type = ci_type, theta_null = 0, pval_precision = NULL)
   output$pvalue <- pvalues[output$id]
-  
+
   return(output)
-  
+
 }
 
 #' Bootstrapped performance differences between datasets
@@ -326,27 +319,23 @@ bootstrapDeltaPerformanceDatasets <- function(data1, data2,
                    thresholds = thresholds, weighted = weighted)
   
   # set up parallel backend for computing confidence intervals if specified (useful for 'bca')
-  if (ncpus > 1) {
-    register(MulticoreParam(workers = ncpus))
-  } else {
-    register(SerialParam())
-  }
-  
+  setup_parallel_backend(ncpus)
+
   # compute confidence intervals for all predictors
   message("Computing confidence intervals...")
   ci <- bplapply(seq_along(bs_delta$t0), FUN = boot.ci, boot.out = bs_delta, conf = conf,
                  type = ci_type)
-  
+
   # process boot.ci output to make pretty output table
   output <- process_ci(ci, boot = bs_delta, metric = paste0("delta_", metric))
-  
+
   # compute p-values under the null hypothesis that delta is 0
   message("Computing p-values...")
   pvalues <- compute_pvalues(bs_delta, type = ci_type, theta_null = 0, pval_precision = NULL)
   output$pvalue <- pvalues[output$id]
-  
-  return(output) 
-  
+
+  return(output)
+
 }
 
 #' Plot bootstrapped performance / delta performance
@@ -459,6 +448,15 @@ calc_delta_performance_datasets <- function(data, indices, metric, thresholds, w
 
 
 ## HELPER FUNCTIONS ================================================================================
+
+# set up parallel backend for bootstrap computations
+setup_parallel_backend <- function(ncpus) {
+  if (ncpus > 1) {
+    register(MulticoreParam(workers = ncpus))
+  } else {
+    register(SerialParam())
+  }
+}
 
 # calculate performance auprc, or precision or recall at threshold for one predictor
 calculate_performance_one_pred <- function(data, pred, threshold, metric, weighted) {

@@ -31,8 +31,9 @@ pred_config <- importPredConfig(snakemake@input$pred_config,
                                 include_col = include_col,
                                 filter = snakemake@params$filter_include_col)
 
-# load experimental data
+# load and QC experimental data
 expt <- loadExpt(snakemake@input$experiment, showProgress = FALSE)
+expt <- qcExperiment(expt, pos_col = snakemake@params$pos_col, remove_na_pos = TRUE)
 
 # load tss and gene universe files
 tss_annot <- fread(snakemake@input$tss_universe, select = 1:6,
@@ -46,6 +47,9 @@ if (length(snakemake@params$pred_format) > 1) {
 } else {
   format <- snakemake@params$pred_format
 }
+
+# validate predictor names match pred_config before loading all prediction files
+qcPredConfigNames(pred_config, names(config$pred))
 
 # load all prediction files
 pred_list <- loadPredictions(config$pred, format = format, show_progress = FALSE)
@@ -75,12 +79,11 @@ if (!is.null(snakemake@input$expressed_genes)) {
   expressed_genes <- NULL
 }
 
-# QC pred_config file
+# QC pred_config file (validates pred_list names match pred_config after loading)
 qcPredConfig(pred_config, pred_list = pred_list)
 
-# QC predictions and experimental data
+# QC predictions (expt was already validated after loading)
 pred_list <- qcPredictions(pred_list, pred_config = pred_config, one_tss = FALSE)
-expt <- qcExperiment(expt, pos_col = snakemake@params$pos_col, remove_na_pos = TRUE)
 
 ## process input data ------------------------------------------------------------------------------
 
