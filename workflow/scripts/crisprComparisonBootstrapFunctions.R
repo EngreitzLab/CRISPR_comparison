@@ -242,7 +242,8 @@ bootstrapDeltaPerformance <- function(data, metric = c("auprc", "precision", "re
   
   # compute p-values under the null hypothesis that delta is 0
   message("Computing p-values...")
-  pvalues <- compute_pvalues(bs_delta, type = ci_type, theta_null = 0, pval_precision = NULL)
+  pvalues <- compute_pvalues(bs_delta, type = ci_type, theta_null = 0, pval_precision = NULL,
+                             alternative = "two.sided")
   output$pvalue <- pvalues[output$id]
   
   return(output)
@@ -342,7 +343,8 @@ bootstrapDeltaPerformanceDatasets <- function(data1, data2,
   
   # compute p-values under the null hypothesis that delta is 0
   message("Computing p-values...")
-  pvalues <- compute_pvalues(bs_delta, type = ci_type, theta_null = 0, pval_precision = NULL)
+  pvalues <- compute_pvalues(bs_delta, type = ci_type, theta_null = 0, pval_precision = NULL,
+                             alternative = "two.sided")
   output$pvalue <- pvalues[output$id]
   
   return(output) 
@@ -597,14 +599,14 @@ process_ci <- function(ci, boot, metric) {
 }
 
 # compute p-values from bootstrapping results
-compute_pvalues <- function(boot, type, theta_null, pval_precision) {
+compute_pvalues <- function(boot, type, theta_null, pval_precision, alternative) {
   
   # get indices for different bootstraps
   indices <- structure(seq_along(boot$t0), names = names(boot$t0))
   
   # compute p-values from boot object
   pvals <- bplapply(indices, FUN = boot.pval, boot_res = boot, type = type, theta_null = theta_null,
-                    pval_precision = pval_precision)
+                    pval_precision = pval_precision, alternative = alternative)
   
   # convert from list ot simple vector
   pvals <- unlist(pvals)
@@ -614,36 +616,57 @@ compute_pvalues <- function(boot, type, theta_null, pval_precision) {
 }
 
 # function to compute p-values from boot objects. taken from the boot.pval package, which is not on
-# conda yet: https://github.com/mthulin/boot.pval/blob/main/R/boot.pval.R
+# conda yet: https://github.com/mthulin/boot.pval/blob/024358253306ce1f051756e974f390c54c9dcf2e/R/boot.pval.R
 boot.pval <- function(boot_res,
                       type = "perc",
                       theta_null = 0,
                       pval_precision = NULL,
-                      ...) {
-  
-  if(is.null(pval_precision)) { pval_precision = 1/boot_res$R }
-  
-  # create a sequence of alphas:
-  alpha_seq <- seq(1e-16, 1-1e-16, pval_precision)
-  
-  # compute the 1-alpha confidence intervals, and extract their bounds:
-  ci <- suppressWarnings(boot::boot.ci(boot_res,
-                                       conf = 1- alpha_seq,
-                                       type = type,
-                                       ...))
-  
-  bounds <- switch(type,
-                   norm = ci$normal[,2:3],
-                   basic = ci$basic[,4:5],
-                   stud = ci$student[,4:5],
-                   perc = ci$percent[,4:5],
-                   bca = ci$bca[,4:5])
-  
-  # find the smallest alpha such that theta_null is not contained in the 1-alpha
-  # confidence interval:
-  alpha <- alpha_seq[which.min(theta_null >= bounds[,1] & theta_null <= bounds[,2])]
-  
-  # return the p-value:
+                      alternative = "two.sided",
+                      ...)
+{
+    if(is.null(pval_precision)) { pval_precision = 1/boot_res$R }
+
+    # Create a sequence of alphas:
+    alpha_seq <- seq(pval_precision, 1-pval_precision, pval_precision)
+
+    # Compute the 1-alpha confidence intervals, and extract
+    # their bounds:
+    ci <- suppressWarnings(boot::boot.ci(boot_res,
+            conf = 1-alpha_seq,
+            type = type,
+            ...))
+
+    bounds <- switch(type,
+           norm = ci$normal[,2:3],
+           basic = ci$basic[,4:5],
+           stud = ci$student[,4:5],
+           perc = ci$percent[,4:5],
+           bca = ci$bca[,4:5])
+
+    # Find the smallest alpha such that theta_null is not contained in the 1-alpha
+    # confidence interval:
+    if(!(alternative %in% c("two.sided", "less", "greater"))) {
+      stop('alternative must be either "two.sided", "less" or "greater"')
+    }
+    if(alternative == "two.sided") {
+      alpha <- alpha_seq[which.min(theta_null >= bounds[,1] & theta_null <= bounds[,2])]
+    }
+    if(alternative == "greater") {
+      if(sum(theta_null < bounds[,1]) == 0)
+      { alpha <- 1 } else
+      {
+        alpha <- alpha_seq[which.min(theta_null >= bounds[,1])]/2
+      }
+
+    }
+    if(alternative == "less") {
+      if(sum(theta_null > bounds[,2]) == 0)
+      { alpha <- 1 } else
+      {
+        alpha <- alpha_seq[which.min(theta_null <= bounds[,2])]/2
+      }
+    }
+
+  # Return the p-value:
   return(alpha)
-  
 }
