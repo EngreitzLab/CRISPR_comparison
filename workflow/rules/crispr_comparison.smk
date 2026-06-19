@@ -96,7 +96,8 @@ rule comparePredictionsToExperiment:
      pos_col = "Regulated",
      min_sensitivity = 0.7,
      dist_bins_kb = lambda wildcards: config["comparisons"][wildcards.comparison]["dist_bins_kb"],
-     include_col = lambda wildcards: get_optional_parameter(wildcards, "include_col", None)
+     include_col = lambda wildcards: get_optional_parameter(wildcards, "include_col", None),
+     auc_left_rectangle = lambda wildcards: get_optional_parameter(wildcards, "auc_left_rectangle", None)
   conda: "../envs/r_crispr_comparison.yml"
   resources:
     mem_mb = 32000,
