@@ -127,6 +127,36 @@ See `resources/example/pred_config.txt` for an example. If this file is left out
 `config.txt`), a file with default values will be generated, however they might not be appropriate
 for the provided predictors.
 
+#### Prediction file formats
+Prediction files can be provided in different formats, which is specified via the optional
+`pred_file_format` parameter of a comparison. Supported formats are:
+
+ * `generic`: The prediction file format described above, which is read as is.
+ * `ENCODE`: Same as `generic`, but an optional `#` at the start of the header row is removed.
+ * `IGVF`: Prediction files following the IGVF E2G prediction file specification, including `#`
+ comment lines in the header. These are converted to the `generic` format on loading.
+
+All files listed for one predictor are assumed to have the same format. A format can either be set
+for all predictors at once, or for individual predictors by naming them like the entries of `pred`:
+
+```yaml
+comparisons:
+  MyComparison:
+    pred:
+      predictor1: "predictor1_predictions.tsv.gz"
+      predictor2: "predictor2_predictions.tsv.gz"
+      predictor3:                         # one predictor, multiple cell types
+        - "predictor3_K562.tsv.gz"
+        - "predictor3_GM12878.tsv.gz"
+    pred_file_format:
+      predictor1: "IGVF"
+      predictor2: Null                    # explicitly unspecified, same as omitting it
+      predictor3: "ENCODE"                # applies to both files of this predictor
+```
+
+Predictors that are omitted or set to `Null`, as well as leaving out `pred_file_format` altogether
+(`pred_file_format: Null`), default to the `generic` format.
+
 ### Running the workflow
 Following command can be used to perform all specified comparisons. Run time per comparison depends
 on the number and file size of the included predictions, but should typically take less than

@@ -1,5 +1,10 @@
 # rules to perform comparisons of CRE predictions to CRISPR data
 
+# valid prediction file formats and format assumed if not specified in config
+# (keep in sync with 'possible_formats' in crisprComparisonLoadInputData.R)
+PRED_FILE_FORMATS = ["generic", "ENCODE", "IGVF"]
+DEFAULT_PRED_FILE_FORMAT = "generic"
+
 # get all prediction files and concatenate them into one array
 def get_predictions(wildcards):
   preds = config["comparisons"][wildcards.comparison]["pred"]
@@ -18,6 +23,44 @@ def get_pred_config(wildcards):
     comparison = wildcards.comparison
     pred_config = "results/" + comparison + "/pred_config.txt"
   return pred_config
+
+# get prediction file format(s) for a comparison. this is either one format for all predictors, or
+# a mapping keyed by the names of 'pred' specifying the format of each predictor individually.
+# predictors omitted from the mapping (or set to Null) use DEFAULT_PRED_FILE_FORMAT. all files
+# listed for one predictor are assumed to have the same format
+def get_pred_file_format(wildcards):
+  comparison = config["comparisons"][wildcards.comparison]
+  formats = comparison.get("pred_file_format")
+
+  # if no formats are specified, all files are loaded using the default format
+  if formats is None:
+    return DEFAULT_PRED_FILE_FORMAT
+
+  # if formats are specified per predictor, fill in the default for any missing predictors
+  if isinstance(formats, dict):
+    pred_names = list(comparison["pred"].keys())
+    unknown = [name for name in formats if name not in pred_names]
+    if unknown:
+      raise ValueError(
+        "'pred_file_format' in comparison '" + wildcards.comparison + "' contains predictors not "
+        "found in 'pred': " + ", ".join(unknown))
+    multiple = [name for name, fmt in formats.items() if isinstance(fmt, list)]
+    if multiple:
+      raise ValueError(
+        "Only one 'pred_file_format' can be specified per predictor, but multiple were found in "
+        "comparison '" + wildcards.comparison + "' for: " + ", ".join(multiple))
+    formats = {name: formats.get(name) or DEFAULT_PRED_FILE_FORMAT for name in pred_names}
+    invalid = [fmt for fmt in formats.values() if fmt not in PRED_FILE_FORMATS]
+  else:
+    invalid = [formats] if formats not in PRED_FILE_FORMATS else []
+
+  # raise an error early if any invalid formats were specified
+  if invalid:
+    raise ValueError(
+      "Invalid 'pred_file_format' in comparison '" + wildcards.comparison + "': " +
+      ", ".join(map(str, invalid)) + ". Valid formats: " + ", ".join(PRED_FILE_FORMATS))
+
+  return formats
 
 # get optional input parameter if they are specified in config
 def get_optional_parameter(wildcards, param, default=[]):
@@ -59,7 +102,7 @@ rule mergePredictionsWithExperiment:
   params:
     pos_col = "Regulated",
     include_col = lambda wildcards: get_optional_parameter(wildcards, "include_col", None),
-    pred_format = lambda wildcards: get_optional_parameter(wildcards, "pred_file_format", "ENCODE"),
+    pred_format = get_pred_file_format,
     filter_tss = lambda wildcards: get_optional_parameter(wildcards, "filter_pred_tss", True),
     filter_include_col = False
   log: "results/{comparison}/logs/mergePredictionsWithExperiment.log"

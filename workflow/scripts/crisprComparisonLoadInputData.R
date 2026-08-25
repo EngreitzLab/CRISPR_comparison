@@ -91,15 +91,18 @@ loadExpt <- function(expt_file, showProgress = FALSE) {
 #' 
 #' @param pred_files Named list containing all input prediction files.
 #' @param format Predictor file format to use correct import function (Default: generic). Either a
-#'   a single string specifying the format of all files, or a vector of equal length as pred_files
-#'   specifying the format of each file individually.
+#'   single string specifying the format of all files, a vector of equal length as pred_files
+#'   specifying the format of each predictor individually, or a list named after the predictors in
+#'   pred_files specifying the format of individual predictors. Predictors missing from a named
+#'   list (or set to NULL) are loaded using the default format. All files for a given predictor are
+#'   assumed to have the same format.
 #' @param show_progress (logical) Should detailed loading progress be showed?
 loadPredictions <- function(pred_files, format = "generic", show_progress = FALSE) {
-  
-  # check format argument
+
+  # check format argument and get the format for each predictor
   possible_formats <- c("generic", "ENCODE", "IGVF")
   format <- process_format_arg(format, pred_files, possible_formats = possible_formats)
-  
+
   # pick import functions based on specified predictors file format
   load_functions <- case_match(
     format,
@@ -107,12 +110,12 @@ loadPredictions <- function(pred_files, format = "generic", show_progress = FALS
     "ENCODE" ~ "load_encode_pred_file",
     "IGVF" ~ "load_igvf_pred_file"
   )
-  
+
   message("Loading prediction files:")
-  
+
   # import all pred_files as a list using the correct load function for each format
   pred_ids <- structure(names(pred_files), names = names(pred_files))
-  preds <- mapply(FUN = load_pred_files_predictor, pred_ids, load_functions,
+  preds <- mapply(FUN = load_pred_files_predictor, pred_ids, load_functions, format,
                   MoreArgs = list(pred_files = pred_files, show_progress = show_progress),
                   SIMPLIFY = FALSE)
 
@@ -301,34 +304,72 @@ check_colors <- function(pred_config) {
   
 }
 
-# check if file format argument is valid
-process_format_arg <- function(format, pred_files, possible_formats) {
-  
+# check if file format argument is valid and expand it into one format per predictor
+process_format_arg <- function(format, pred_files, possible_formats, default = "generic") {
+
+  pred_ids <- names(pred_files)
+
+  # if no format is provided at all, use the default format for every predictor
+  if (is.null(format)) {
+    format <- default
+  }
+
+  if (is.null(names(format))) {
+
+    # if format is an unnamed vector of formats, check that the number is correct, else create
+    # vector with the same format for each predictor
+    if (length(format) == 1) {
+      format <- rep_len(as.character(format), length(pred_ids))
+    } else if (length(format) != length(pred_ids)) {
+      stop("'format' needs to be either one value or a vector of equal length as 'pred_files'",
+           call. = FALSE)
+    } else {
+      format <- as.character(format)
+    }
+    names(format) <- pred_ids
+
+  } else {
+
+    # if format is named, all names need to refer to provided predictors
+    unknown_preds <- setdiff(names(format), pred_ids)
+    if (length(unknown_preds) > 0) {
+      stop("'format' contains predictors not found in 'pred_files': ",
+           paste(unknown_preds, collapse = ", "), call. = FALSE)
+    }
+
+    # only one format can be specified per predictor, since all files for a given predictor are
+    # assumed to have the same format (checked before unlisting, which drops NULL entries)
+    multiple_formats <- names(format)[lengths(format) > 1]
+    if (length(multiple_formats) > 0) {
+      stop("Only one 'format' can be specified per predictor, but multiple were provided for: ",
+           paste(multiple_formats, collapse = ", "), call. = FALSE)
+    }
+
+    # use the default format for predictors without a specified format (either missing from 'format'
+    # or set to NULL) and order formats like the provided predictions
+    format <- unlist(format)
+    format <- structure(as.character(format), names = names(format))
+    format[setdiff(pred_ids, names(format))] <- default
+    format <- format[pred_ids]
+
+  }
+
   # check that all format values are valid
   invalid_formats <- setdiff(format, possible_formats)
   if (length(invalid_formats) > 0) {
     stop("Invalid prediction file format(s): ", paste(invalid_formats, collapse = ", "),
          call. = FALSE)
   }
-  
-  # if format is a list of formats per file, check that number is correct, else create vector with
-  # with the same format for each file
-  if (length(format) == 1) {
-    format <- rep_len(format, length(pred_files))
-  } else if (length(format) != length(pred_files)) {
-    stop("'format' needs to be either one value or a vector of equal length as 'pred_files'",
-         call. = FALSE)
-  }
-  
+
   return(format)
-  
+
 }
 
 # load all prediction files for one predictor provided via pred_id
-load_pred_files_predictor <- function(pred_id, load_function, pred_files, show_progress) {
-  
-  message("\tLoading predictions for: ", pred_id)
-  
+load_pred_files_predictor <- function(pred_id, load_function, format, pred_files, show_progress) {
+
+  message("\tLoading predictions for: ", pred_id, " (", format, " file format)")
+
   # get load function specified by load_function string
   load_function <- get(load_function)
   
