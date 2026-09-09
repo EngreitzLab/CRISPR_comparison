@@ -106,8 +106,8 @@ loadPredictions <- function(pred_files, format = "generic", show_progress = FALS
   # pick import functions based on specified predictors file format
   load_functions <- case_match(
     format,
-    "generic" ~ "fread",
-    "ENCODE" ~ "load_encode_pred_file",
+    "generic" ~ "load_generic_pred_file",
+    "ENCODE" ~ "load_generic_pred_file",  # kept as an alias for 'generic'
     "IGVF" ~ "load_igvf_pred_file"
   )
 
@@ -195,11 +195,11 @@ loadGeneExpr <- function(...) {
 
 ## Functions to load predictions from different formats --------------------------------------------
 
-# load one predictor file in ENCODE format (same as generic with optional "#" for header row)
-load_encode_pred_file <- function(file, showProgress) {
-  
+# load one predictor file in generic format (with optional "#" for header row)
+load_generic_pred_file <- function(file, showProgress) {
+
   # load predictions and remove optional "#" in header row
-  pred <- fread(file)
+  pred <- fread(file, showProgress = showProgress)
   colnames(pred)[[1]] <- sub("^#", "", colnames(pred)[[1]])
   
   return(pred)

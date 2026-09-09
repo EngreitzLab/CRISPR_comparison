@@ -131,8 +131,9 @@ for the provided predictors.
 Prediction files can be provided in different formats, which is specified via the optional
 `pred_file_format` parameter of a comparison. Supported formats are:
 
- * `generic`: The prediction file format described above, which is read as is.
- * `ENCODE`: Same as `generic`, but an optional `#` at the start of the header row is removed.
+ * `generic`: The prediction file format described above. An optional `#` at the start of the header
+ row is removed.
+ * `ENCODE`: Alias for `generic`, retained for backwards compatibility.
  * `IGVF`: Prediction files following the IGVF E2G prediction file specification, including `#`
  comment lines in the header. These are converted to the `generic` format on loading.
 
@@ -151,7 +152,7 @@ comparisons:
     pred_file_format:
       predictor1: "IGVF"
       predictor2: Null                    # explicitly unspecified, same as omitting it
-      predictor3: "ENCODE"                # applies to both files of this predictor
+      predictor3: "generic"               # applies to both files of this predictor
 ```
 
 Predictors that are omitted or set to `Null`, as well as leaving out `pred_file_format` altogether
