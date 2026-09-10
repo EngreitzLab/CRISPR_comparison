@@ -135,7 +135,9 @@ Prediction files can be provided in different formats, which is specified via th
  row is removed.
  * `ENCODE`: Alias for `generic`, retained for backwards compatibility.
  * `IGVF`: Prediction files following the IGVF E2G prediction file specification, including `#`
- comment lines in the header. These are converted to the `generic` format on loading.
+ comment lines in the header. These are converted to the `generic` format on loading. The cell type
+ is taken from the `CellAnnotation` column, or from the corresponding header line if that column is
+ missing. The earlier `SampleSummaryShort` field is still accepted.
 
 All files listed for one predictor are assumed to have the same format. A format can either be set
 for all predictors at once, or for individual predictors by naming them like the entries of `pred`:

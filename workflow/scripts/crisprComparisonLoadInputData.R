@@ -209,29 +209,50 @@ load_generic_pred_file <- function(file, showProgress) {
 # load one predictor file in igvf format and convert to generic format
 load_igvf_pred_file <- function(file, showProgress) {
   
-  # get header lines and extract cell type (SampleSummaryShort)
+  # known cell type field names across IGVF spec revisions (newest first)
+  cell_type_fields <- c("CellAnnotation", "SampleSummaryShort")
+
+  # get header lines
   header <- grep(readLines(file, n = 1000), pattern = "^#", value = TRUE)
-  biosample <- grep(header, pattern = "SampleSummaryShort", value = 1)
-  biosample <- sub(".*SampleSummaryShort:[ ]*", "", biosample)
-  
+
   # load predictions table and skip header lines (cautious approach, fread() should skip '#' lines)
   pred <- fread(file, skip = length(header), showProgress = showProgress)
-  
-  # add SampleSummaryShort column if missing
-  if (!"SampleSummaryShort" %in% colnames(pred)) {
-    pred$SampleSummaryShort <- biosample
+
+  # use the cell type column present in the file, else take the cell type from the header lines
+  cell_type_field <- intersect(cell_type_fields, colnames(pred))
+  if (length(cell_type_field) == 0) {
+    header_field <- intersect(cell_type_fields, sub("^#[ ]*([^:]+):.*", "\\1", header))
+    if (length(header_field) == 0) {
+      stop("No cell type found in IGVF file '", file, "'. Expecting one of the following as a ",
+           "column or header line: ", paste(cell_type_fields, collapse = ", "), call. = FALSE)
+    }
+    cell_type_field <- header_field[[1]]
+    cell_type_line <- grep(header, pattern = paste0("^#[ ]*", cell_type_field, ":"), value = TRUE)
+    pred[[cell_type_field]] <- sub(".*:[ ]*", "", cell_type_line[[1]])
+  } else {
+    cell_type_field <- cell_type_field[[1]]
   }
-  
-  # select relevant columns for benchmarking pipeline
+
+  # all columns that are not scores, including any cell type field not used for this file
   base_cols <- c("ElementChr", "ElementStart", "ElementEnd", "ElementName", "ElementClass",
-                 "GeneSymbol", "GeneEnsemblID", "GeneTSS", "SampleSummaryShort")
-  score_cols <- setdiff(colnames(pred), base_cols)
-  select_cols <- c(base_cols[c(1:4, 6, 9)], score_cols)
+                 "GeneSymbol", "GeneEnsemblID", "GeneTSS", cell_type_field)
+  score_cols <- setdiff(colnames(pred), c(base_cols, cell_type_fields))
+
+  # select relevant columns for benchmarking pipeline and rename to internal columns
+  igvf_cols <- c("ElementChr", "ElementStart", "ElementEnd", "ElementName", "GeneSymbol",
+                 cell_type_field)
+  internal_cols <- c("chr", "start", "end", "name", "TargetGene", "CellType")
+
+  missing_cols <- setdiff(igvf_cols, colnames(pred))
+  if (length(missing_cols) > 0) {
+    stop("IGVF file '", file, "' is missing required column(s): ",
+         paste(missing_cols, collapse = ", "), call. = FALSE)
+  }
+
+  select_cols <- c(igvf_cols, score_cols)
   pred <- pred[, ..select_cols]
-  
-  # rename column to CRISPR benchmark internal columns
-  colnames(pred)[1:6] <- c("chr", "start", "end", "name", "TargetGene", "CellType")
-  
+  setnames(pred, old = igvf_cols, new = internal_cols)
+
   return(pred)
   
 }
